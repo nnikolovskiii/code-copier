@@ -5,7 +5,7 @@ name: Build Electron App
 # This workflow runs whenever you push code to the 'main' branch
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
 
 jobs:
   build-on-windows:

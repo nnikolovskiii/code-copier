@@ -27,8 +27,17 @@
         }
         .toolbar { padding: 10px; border-bottom: 1px solid var(--border-color); background-color: var(--sidebar-bg); flex-shrink: 0; }
         .main-content { display: flex; flex: 1; min-height: 0; }
-        #file-tree-container { width: 400px; padding: 5px; background-color: var(--sidebar-bg); overflow-y: auto; user-select: none; border-right: 1px solid var(--border-color); }
-        #status-area { padding: 20px; font-family: monospace; flex-grow: 1; }
+        #file-tree-container { width: 400px; min-width: 200px; max-width: 80%; padding: 5px; background-color: var(--sidebar-bg); overflow-y: auto; user-select: none; border-right: 1px solid var(--border-color); }
+        #status-area { padding: 0; font-family: monospace; flex-grow: 1; overflow: hidden; display: flex; flex-direction: column; }
+        .file-header { background-color: var(--sidebar-bg); padding: 15px 20px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+        .file-name { font-weight: bold; color: var(--text-color); margin-bottom: 5px; }
+        .file-path { font-size: 12px; color: var(--icon-color); }
+        .file-content { padding: 20px; overflow-y: auto; flex: 1; white-space: pre-wrap; background-color: var(--bg-color); }
+        .file-error { padding: 20px; color: #ff6b6b; }
+        .welcome-message { padding: 20px; text-align: center; color: var(--icon-color); }
+        .resizer { width: 5px; background-color: var(--border-color); cursor: col-resize; flex-shrink: 0; position: relative; transition: background-color 0.2s ease; }
+        .resizer:hover { background-color: var(--button-bg); }
+        .resizer.resizing { background-color: var(--button-bg); }
         button#select-folder-btn { background-color: var(--button-bg); color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
         .file-tree, .file-tree ul { list-style: none; padding: 0; }
         .file-tree ul { padding-left: 20px; }
@@ -50,12 +59,16 @@
 <body>
 <div class="toolbar">
     <button id="select-folder-btn" type="button">Select Project Folder</button>
+    <button id="copy-structure-btn" type="button" style="margin-left: 10px;">Copy Structure</button>
 </div>
 <div class="main-content">
     <div id="file-tree-container">
         <!-- File tree will be rendered here by renderer.js -->
     </div>
-    <div id="status-area">Select a folder to begin.</div>
+    <div class="resizer"></div>
+    <div id="status-area">
+        <div class="welcome-message">Select a folder to begin.</div>
+    </div>
 </div>
 </body>
 <script src="./renderer.js"></script>

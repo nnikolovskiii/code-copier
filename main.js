@@ -98,6 +98,109 @@ async function handleCopyPath(event, { targetPath, rootPath }) {
     }
 }
 
+async function handleReadFile(event, { filePath }) {
+    try {
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) {
+            return { error: "Path is not a file" };
+        }
+
+        const baseName = path.basename(filePath);
+        if (IGNORED_EXTENSIONS.some(ext => baseName.endsWith(ext))) {
+            return { error: "File type is not supported for viewing" };
+        }
+
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const relativePath = path.relative(path.dirname(filePath), filePath);
+
+        return {
+            content,
+            fileName: baseName,
+            filePath: filePath,
+            relativePath: relativePath
+        };
+    } catch (error) {
+        console.error("Error reading file:", error);
+        return { error: `Error reading file: ${error.message}` };
+    }
+}
+
+function generateTreeStructureString(node, prefix = '', isLast = true, rootPath = '') {
+    let result = '';
+
+    // Handle root node differently - show the directory name with trailing slash
+    if (prefix === '') {
+        const dirName = path.basename(node.path);
+        result += `Directory structure:\n└── ${dirName}/\n`;
+
+        if (node.children && node.children.length > 0) {
+            // Sort children: directories first, then files
+            const sortedChildren = node.children.sort((a, b) => {
+                if (a.type === b.type) return a.name.localeCompare(b.name);
+                return a.type === 'directory' ? -1 : 1;
+            });
+
+            sortedChildren.forEach((child, index) => {
+                const childLast = index === sortedChildren.length - 1;
+                const childPrefix = '    ';
+                result += generateChildTreeString(child, '│   ', childLast, node.path);
+            });
+        }
+    }
+
+    return result;
+}
+
+function generateChildTreeString(node, prefix = '', isLast = true, parentPath = '') {
+    let result = '';
+
+    // Add the current node
+    const connector = isLast ? '└── ' : '├── ';
+    const nodeName = node.type === 'directory' ? `${node.name}/` : node.name;
+    result += prefix + connector + nodeName + '\n';
+
+    // Add children if it's a directory
+    if (node.type === 'directory' && node.children && node.children.length > 0) {
+        const nextPrefix = prefix + (isLast ? '    ' : '│   ');
+
+        // Sort children: directories first, then files
+        const sortedChildren = node.children.sort((a, b) => {
+            if (a.type === b.type) return a.name.localeCompare(b.name);
+            return a.type === 'directory' ? -1 : 1;
+        });
+
+        sortedChildren.forEach((child, index) => {
+            const childLast = index === sortedChildren.length - 1;
+            result += generateChildTreeString(child, nextPrefix, childLast, node.path);
+        });
+    }
+
+    return result;
+}
+
+async function handleCopyStructure(event, { rootPath }) {
+    try {
+        if (!rootPath) {
+            return "❌ Error: No folder selected. Please select a folder first.";
+        }
+
+        // Generate the file tree structure
+        const fileTree = generateFileTree(rootPath);
+        const rootNode = { name: path.basename(rootPath), path: rootPath, type: 'directory', children: fileTree };
+
+        // Generate the ASCII tree string
+        const treeString = generateTreeStructureString(rootNode);
+
+        // Copy to clipboard
+        clipboard.writeText(treeString);
+
+        return `✅ Success! Copied folder structure to clipboard.`;
+    } catch (error) {
+        console.error("Error copying structure:", error);
+        return `❌ Error: ${error.message}`;
+    }
+}
+
 function createWindow() {
     const win = new BrowserWindow({ width: 1000, height: 800, webPreferences: { preload: path.join(__dirname, 'preload.js') } });
     win.loadFile('index.html');
@@ -106,6 +209,8 @@ function createWindow() {
 app.whenReady().then(() => {
     ipcMain.handle('dialog:openDirectory', handleDirectoryOpen);
     ipcMain.handle('context:copyPath', handleCopyPath);
+    ipcMain.handle('file:read', handleReadFile);
+    ipcMain.handle('context:copyStructure', handleCopyStructure);
     createWindow();
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

@@ -1,6 +1,6 @@
 {
   "name": "my-electron-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A desktop app to easily copy project code for AI prompts.",
   "main": "main.js",
   "scripts": {

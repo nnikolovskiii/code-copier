@@ -31,7 +31,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libnss3 libgtk-3-0 libxrandr2 libasound2 libxtst6 libxss1 libgconf-2-4
+          sudo apt-get install -y libnss3 libgtk-3-0 libxrandr2 libasound2t64 libxtst6 libxss1
 
       # 4. Install your project's dependencies
       - name: Install dependencies

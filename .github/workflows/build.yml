@@ -8,9 +8,12 @@ on:
     branches: [ "master" ]
 
 jobs:
-  build-on-windows:
-    # We want to build on the latest version of Windows
-    runs-on: windows-latest
+  build:
+    # Use a matrix strategy to build on all platforms
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       # 1. Check out your code from the repository
@@ -23,17 +26,49 @@ jobs:
         with:
           node-version: '20' # Use a long-term support version of Node
 
-      # 3. Install your project's dependencies
+      # 3. Install Linux system dependencies for Electron
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libgtk-3-0 libxrandr2 libasound2 libxtst6 libxss1 libgconf-2-4
+
+      # 4. Install your project's dependencies
       - name: Install dependencies
         run: npm install
 
-      # 4. Run the build command to create the .exe installer
+      # 5. Run the build command to create the application packages
       - name: Build the application
         run: npm run make
 
-      # 5. Upload the finished installer as an artifact
+      # 6. Upload Windows artifacts
       - name: Upload Windows build artifact
+        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: out/make/squirrel.windows/x64/*.exe # This path points to the generated .exe installer
+          name: windows-installer
+          path: out/make/squirrel.windows/x64/*.exe
+
+      # 7. Upload Linux DEB artifacts
+      - name: Upload Linux DEB build artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb-package
+          path: out/make/deb/x64/*.deb
+
+      # 8. Upload Linux RPM artifacts
+      - name: Upload Linux RPM build artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-rpm-package
+          path: out/make/rpm/x64/*.rpm
+
+      # 9. Upload macOS artifacts
+      - name: Upload macOS build artifact
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-zip-package
+          path: out/make/zip/darwin/*.zip

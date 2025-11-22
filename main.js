@@ -202,7 +202,12 @@ async function handleCopyStructure(event, { rootPath }) {
 }
 
 function createWindow() {
-    const win = new BrowserWindow({ width: 1000, height: 800, webPreferences: { preload: path.join(__dirname, 'preload.js') } });
+    const win = new BrowserWindow({
+        width: 1000,
+        height: 800,
+        icon: path.join(__dirname, 'assets/icons/icon.png'),
+        webPreferences: { preload: path.join(__dirname, 'preload.js') }
+    });
     win.loadFile('index.html');
 }
 

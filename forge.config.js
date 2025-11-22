@@ -4,6 +4,8 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
+    icon: './assets/icons/icon',
+    name: 'Code Copier',
   },
   rebuildConfig: {},
   makers: [

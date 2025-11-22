@@ -1,5 +1,5 @@
 {
-  "name": "my-electron-app",
+  "name": "code-copier",
   "version": "1.0.1",
   "description": "A desktop app to easily copy project code for AI prompts.",
   "main": "main.js",

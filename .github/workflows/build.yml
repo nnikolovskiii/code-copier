@@ -41,7 +41,62 @@ jobs:
       - name: Build the application
         run: npm run make
 
-      # 6. Upload Windows artifacts
+      # 6. Create Windows shortcuts
+      - name: Create Windows shortcuts
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          # Create shortcuts directory
+          New-Item -ItemType Directory -Force -Path "shortcuts"
+
+          # Find the built executable
+          $exeFile = Get-ChildItem -Path "out/make/squirrel.windows/x64/*.exe" | Select-Object -First 1
+          if (-not $exeFile) {
+            Write-Error "No executable found in out/make/squirrel.windows/x64/"
+            exit 1
+          }
+
+          $exePath = $exeFile.FullName
+          $exeName = $exeFile.BaseName
+          $workingDir = $exeFile.Directory.FullName
+
+          Write-Host "Found executable: $exePath"
+          Write-Host "Executable name: $exeName"
+          Write-Host "Working directory: $workingDir"
+
+          # Create Shell Object
+          $shell = New-Object -ComObject WScript.Shell
+
+          # Create Desktop shortcut
+          $desktopPath = [Environment]::GetFolderPath('Desktop')
+          $desktopShortcutPath = "$desktopPath\$exeName.lnk"
+          $desktopShortcut = $shell.CreateShortcut($desktopShortcutPath)
+          $desktopShortcut.TargetPath = $exePath
+          $desktopShortcut.WorkingDirectory = $workingDir
+          $desktopShortcut.Description = "Code Copier"
+          $desktopShortcut.Save()
+
+          # Create a copy for artifacts
+          Copy-Item $desktopShortcutPath -Destination "shortcuts\desktop-$exeName.lnk"
+          Write-Host "Created desktop shortcut: $desktopShortcutPath"
+
+          # Create Start Menu shortcut
+          $startMenuPath = [Environment]::GetFolderPath('Programs')
+          $startMenuShortcutPath = "$startMenuPath\$exeName.lnk"
+          $startMenuShortcut = $shell.CreateShortcut($startMenuShortcutPath)
+          $startMenuShortcut.TargetPath = $exePath
+          $startMenuShortcut.WorkingDirectory = $workingDir
+          $startMenuShortcut.Description = "Code Copier"
+          $startMenuShortcut.Save()
+
+          # Create a copy for artifacts
+          Copy-Item $startMenuShortcutPath -Destination "shortcuts\startmenu-$exeName.lnk"
+          Write-Host "Created start menu shortcut: $startMenuShortcutPath"
+
+          # List artifacts
+          Get-ChildItem -Path "shortcuts" -Recurse | ForEach-Object { Write-Host "Artifact: $($_.FullName)" }
+
+      # 7. Upload Windows artifacts
       - name: Upload Windows build artifact
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
@@ -49,7 +104,15 @@ jobs:
           name: windows-installer
           path: out/make/squirrel.windows/x64/*.exe
 
-      # 7. Upload Linux DEB artifacts
+      # 8. Upload Windows shortcuts
+      - name: Upload Windows shortcuts
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-shortcuts
+          path: shortcuts/*.lnk
+
+      # 9. Upload Linux DEB artifacts
       - name: Upload Linux DEB build artifact
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
@@ -57,7 +120,7 @@ jobs:
           name: linux-deb-package
           path: out/make/deb/x64/*.deb
 
-      # 8. Upload Linux RPM artifacts
+      # 10. Upload Linux RPM artifacts
       - name: Upload Linux RPM build artifact
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
@@ -65,7 +128,7 @@ jobs:
           name: linux-rpm-package
           path: out/make/rpm/x64/*.rpm
 
-      # 9. Upload macOS artifacts
+      # 11. Upload macOS artifacts
       - name: Upload macOS build artifact
         if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v4

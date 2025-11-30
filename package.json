@@ -24,19 +24,5 @@
   "dependencies": {
     "chokidar": "^5.0.0",
     "electron-squirrel-startup": "^1.0.1"
-  },
-  "config": {
-    "forge": {
-      "packagerConfig": {
-        "asar": true,
-        "name": "Code Copier"
-      },
-      "makers": [
-        { "name": "@electron-forge/maker-squirrel", "config": {} },
-        { "name": "@electron-forge/maker-zip", "platforms": [ "darwin" ] },
-        { "name": "@electron-forge/maker-deb", "config": {} },
-        { "name": "@electron-forge/maker-rpm", "config": {} }
-      ]
-    }
   }
 }

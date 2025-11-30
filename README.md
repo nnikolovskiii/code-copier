@@ -14,7 +14,7 @@ A desktop application built with Electron that helps you easily copy project cod
 
 ## Screenshots
 
-*(Add screenshots here when available)*
+![alt text](image.png)
 
 ## Installation
 

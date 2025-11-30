@@ -5,7 +5,8 @@ module.exports = {
   packagerConfig: {
     asar: true,
     icon: './assets/icons/icon',
-    name: 'Code Copier',
+    name: 'Code Copier',        // This is the Human Readable Name (Title bar, Start Menu)
+    executableName: 'code-copier', // <--- ADD THIS LINE (The actual file on disk)
   },
   rebuildConfig: {},
   makers: [
@@ -19,11 +20,23 @@ module.exports = {
     },
     {
       name: '@electron-forge/maker-deb',
-      config: {},
+      config: {
+        options: {
+          bin: 'code-copier', // Ensures the deb knows what binary to link
+          name: 'code-copier',
+          productName: 'Code Copier'
+        }
+      },
     },
     {
       name: '@electron-forge/maker-rpm',
-      config: {},
+      config: {
+        options: {
+          bin: 'code-copier',
+          name: 'code-copier',
+          productName: 'Code Copier'
+        }
+      },
     },
   ],
   plugins: [
@@ -31,8 +44,6 @@ module.exports = {
       name: '@electron-forge/plugin-auto-unpack-natives',
       config: {},
     },
-    // Fuses are used to enable/disable various Electron functionality
-    // at package time, before code signing the application
     new FusesPlugin({
       version: FuseVersion.V1,
       [FuseV1Options.RunAsNode]: false,

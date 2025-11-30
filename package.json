@@ -1,11 +1,10 @@
 {
   "name": "code-copier",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A desktop app to easily copy project code for AI prompts.",
   "main": "main.js",
   "scripts": {
     "start": "electron-forge start",
-    "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
     "make": "electron-forge make"
   },
@@ -23,24 +22,20 @@
     "electron": "^39.2.0"
   },
   "dependencies": {
+    "chokidar": "^5.0.0",
     "electron-squirrel-startup": "^1.0.1"
   },
   "config": {
     "forge": {
-      "packagerConfig": {},
+      "packagerConfig": {
+        "asar": true,
+        "name": "Code Copier"
+      },
       "makers": [
-        {
-          "name": "@electron-forge/maker-squirrel",
-          "config": {}
-        },
-        {
-          "name": "@electron-forge/maker-deb",
-          "config": {}
-        },
-        {
-          "name": "@electron-forge/maker-zip",
-          "config": {}
-        }
+        { "name": "@electron-forge/maker-squirrel", "config": {} },
+        { "name": "@electron-forge/maker-zip", "platforms": [ "darwin" ] },
+        { "name": "@electron-forge/maker-deb", "config": {} },
+        { "name": "@electron-forge/maker-rpm", "config": {} }
       ]
     }
   }

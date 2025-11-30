@@ -4,73 +4,324 @@
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
     <title>Code Copier</title>
-    <link rel="icon" type="image/png" href="assets/icons/icon.png" />
     <style>
         :root {
-            --bg-color: #1e1e1e;
-            --sidebar-bg: #252526;
-            --hover-bg: #2a2d2e;
-            --text-color: #cccccc;
-            --icon-color: #c5c5c5;
-            --button-bg: #0e639c;
-            --border-color: #333333;
+            /* VS Code Dark Modern Palette */
+            --bg-app: #1e1e1e;
+            --bg-sidebar: #252526;
+            --bg-header: #323233;
+            --bg-hover: #2a2d2e;
+            --bg-active: #37373d;
+            
+            --border-subtle: #454545;
+            
+            --text-main: #cccccc;
+            --text-muted: #8b949e;
+            --text-bright: #ffffff;
+            
+            --accent-primary: #007acc;
+            --accent-hover: #0062a3;
+            --accent-success: #2da042;
+            --accent-danger: #ea4c89; 
+
+            --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
+
         * { box-sizing: border-box; }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: var(--font-ui);
             display: flex;
             flex-direction: column;
             height: 100vh;
             margin: 0;
-            background-color: var(--bg-color);
-            color: var(--text-color);
+            background-color: var(--bg-app);
+            color: var(--text-main);
             overflow: hidden;
+            font-size: 13px;
         }
-        .toolbar { padding: 10px; border-bottom: 1px solid var(--border-color); background-color: var(--sidebar-bg); flex-shrink: 0; }
-        .main-content { display: flex; flex: 1; min-height: 0; }
-        #file-tree-container { width: 400px; min-width: 200px; max-width: 80%; padding: 5px; background-color: var(--sidebar-bg); overflow-y: auto; user-select: none; border-right: 1px solid var(--border-color); }
-        #status-area { padding: 0; font-family: monospace; flex-grow: 1; overflow: hidden; display: flex; flex-direction: column; }
-        .file-header { background-color: var(--sidebar-bg); padding: 15px 20px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
-        .file-name { font-weight: bold; color: var(--text-color); margin-bottom: 5px; }
-        .file-path { font-size: 12px; color: var(--icon-color); }
-        .file-content { padding: 20px; overflow-y: auto; flex: 1; white-space: pre-wrap; background-color: var(--bg-color); }
-        .file-error { padding: 20px; color: #ff6b6b; }
-        .welcome-message { padding: 20px; text-align: center; color: var(--icon-color); }
-        .resizer { width: 5px; background-color: var(--border-color); cursor: col-resize; flex-shrink: 0; position: relative; transition: background-color 0.2s ease; }
-        .resizer:hover { background-color: var(--button-bg); }
-        .resizer.resizing { background-color: var(--button-bg); }
-        button#select-folder-btn { background-color: var(--button-bg); color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
-        .file-tree, .file-tree ul { list-style: none; padding: 0; }
-        .file-tree ul { padding-left: 20px; }
-        .tree-item { position: relative; display: flex; align-items: center; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
-        .tree-item:hover { background-color: var(--hover-bg); }
-        .tree-item:hover .copy-btn { opacity: 1; }
-        .item-content { display: flex; align-items: center; flex-grow: 1; }
-        .item-content .icon { width: 20px; text-align: center; color: var(--icon-color); }
-        .item-content .icon::before { font-weight: bold; font-size: 14px; }
-        .directory > .tree-item .item-content .icon::before { content: '▸'; }
-        .directory.open > .tree-item .item-content .icon::before { content: '▾'; }
-        .file > .tree-item .item-content .icon::before { content: '📄'; font-weight: normal; }
+
+        /* --- SCROLLBARS --- */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; border: 2px solid var(--bg-app); }
+        ::-webkit-scrollbar-thumb:hover { background: #4f4f4f; }
+        ::-webkit-scrollbar-corner { background: transparent; }
+
+        /* --- ICONS --- */
+        .svg-icon { width: 16px; height: 16px; fill: currentColor; display: inline-block; vertical-align: middle; }
+        .icon-folder { color: #dcb67a; }
+        .icon-file { color: #9cdcfe; }
+        .icon-chevron { color: var(--text-muted); transition: transform 0.15s; width: 14px; height: 14px;}
+
+        /* --- TITLE BAR --- */
+        #title-bar {
+            height: 35px;
+            background-color: var(--bg-header);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            -webkit-app-region: drag; 
+            user-select: none;
+            border-bottom: 1px solid #111;
+        }
+
+        #app-title { margin-left: 15px; font-weight: 500; font-size: 12px; color: var(--text-muted); letter-spacing: 0.5px; }
+        
+        #window-controls { display: flex; -webkit-app-region: no-drag; height: 100%; }
+        .control-btn {
+            width: 46px; height: 100%; border: none; background: transparent; color: var(--text-main);
+            display: flex; justify-content: center; align-items: center; cursor: default; transition: background 0.1s;
+        }
+        .control-btn:hover { background-color: var(--bg-active); }
+        #btn-close:hover { background-color: #c42b1c; color: white; }
+
+        /* --- TOOLBAR --- */
+        .toolbar {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border-subtle);
+            background-color: var(--bg-app);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        button {
+            background-color: var(--bg-active);
+            color: var(--text-main);
+            border: 1px solid #444;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        button:hover { background-color: #505059; color: var(--text-bright); }
+        button:active { transform: translateY(1px); }
+        
+        button.primary { background-color: var(--accent-primary); color: white; border-color: var(--accent-primary); }
+        button.primary:hover { background-color: var(--accent-hover); }
+        
+        button.success { background-color: var(--accent-success); color: white; font-weight: 600; padding: 10px 20px; border:none;}
+        button.success:hover { background-color: #268a39; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(100%); }
+
+        #message-box { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+
+        /* --- MAIN LAYOUT --- */
+        .main-content { display: flex; flex: 1; min-height: 0; position: relative; }
+
+        /* LEFT: File Tree */
+        #file-tree-container {
+            width: 300px;
+            min-width: 200px;
+            background-color: var(--bg-sidebar);
+            overflow-y: auto;
+            user-select: none;
+            padding: 10px 0;
+            border-right: 1px solid var(--border-subtle);
+        }
+
+        /* Tree Nodes */
+        .file-tree, .file-tree ul { list-style: none; padding: 0; margin: 0; }
+        .file-tree ul { padding-left: 10px; border-left: 1px solid #383838; margin-left: 12px; }
+        
+        .tree-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 8px 4px 4px;
+            cursor: pointer;
+            color: var(--text-main);
+            border-radius: 3px;
+            margin: 0 4px;
+            height: 28px;
+        }
+        .tree-item:hover { background-color: var(--bg-hover); color: var(--text-bright); }
+        
+        /* Highlight selected rows lightly */
+        .tree-item.added { background-color: rgba(45, 160, 66, 0.1); }
+        .tree-item.added .tree-label { color: var(--text-bright); font-weight: 500; }
+
+        .item-content { display: flex; align-items: center; flex: 1; overflow: hidden; }
+        .tree-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: 6px; }
+        
+        /* Tree Add Button */
+        .tree-add-btn {
+            background: transparent; border: 1px solid var(--border-subtle);
+            color: var(--text-muted); padding: 0; width: 22px; height: 22px;
+            border-radius: 4px; display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s; margin-left: 5px; cursor: pointer; z-index: 2;
+        }
+
+        /* BUTTON STATE: Default (Plus) */
+        .tree-add-btn:hover { background-color: var(--bg-active); color: var(--text-bright); border-color: var(--text-muted); }
+
+        /* BUTTON STATE: Explicitly Selected (Green Check) */
+        .tree-add-btn.is-selected {
+            opacity: 1;
+            background-color: transparent; 
+            color: var(--accent-success);
+            border-color: var(--accent-success);
+        }
+
+        /* BUTTON STATE: Hover over Selected (Red Minus) */
+        .tree-add-btn.is-selected:hover {
+            background-color: var(--accent-danger);
+            border-color: var(--accent-danger);
+            color: white;
+        }
+
+        /* BUTTON STATE: Implicitly Selected (Parent locked) */
+        .tree-add-btn.is-implicit {
+            opacity: 0.5;
+            color: var(--text-muted);
+            border-color: transparent;
+            cursor: not-allowed;
+            pointer-events: none; 
+        }
+
+        /* Folder Open State */
+        .directory.open > .tree-item .icon-chevron { transform: rotate(90deg); }
         .directory > ul { display: none; }
         .directory.open > ul { display: block; }
-        .copy-btn { opacity: 0; margin-left: auto; padding: 2px 8px; font-size: 12px; background-color: #37373d; border: 1px solid var(--border-color); color: var(--text-color); border-radius: 3px; cursor: pointer; transition: opacity 0.15s ease-in-out, background-color 0.15s; }
-        .copy-btn:hover { background-color: var(--button-bg); }
+
+        /* RESIZER */
+        .resizer { width: 5px; background-color: var(--bg-app); cursor: col-resize; flex-shrink: 0; transition: background 0.2s; z-index: 10; }
+        .resizer:hover, .resizer.resizing { background-color: var(--accent-primary); }
+
+        /* RIGHT: Staging Area */
+        #staging-area {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-app);
+            min-width: 300px;
+        }
+
+        .staging-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .staging-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+
+        .staging-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        /* Selected Cards */
+        .selected-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--bg-sidebar);
+            margin-bottom: 8px;
+            padding: 10px 15px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+        }
+        .selected-item:hover { border-color: #555; }
+        
+        .selected-item-info { display: flex; flex-direction: column; overflow: hidden; }
+        .selected-item-name { font-weight: 500; color: var(--text-bright); display: flex; align-items: center; gap: 8px; }
+        .selected-item-path { font-size: 11px; color: var(--text-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+        
+        .remove-btn {
+            background: transparent; border: none; color: var(--text-muted);
+            padding: 6px; border-radius: 4px; margin-left: 10px;
+        }
+        .remove-btn:hover { background-color: rgba(234, 76, 137, 0.15); color: var(--accent-danger); }
+
+        .staging-footer {
+            padding: 15px 20px;
+            border-top: 1px solid var(--border-subtle);
+            background-color: var(--bg-app);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100%; color: var(--text-muted); text-align: center;
+        }
+        .empty-icon { width: 64px; height: 64px; margin-bottom: 15px; opacity: 0.2; }
     </style>
 </head>
 <body>
-<div class="toolbar">
-    <button id="select-folder-btn" type="button">Select Project Folder</button>
-    <button id="copy-structure-btn" type="button" style="margin-left: 10px;">Copy Structure</button>
-</div>
-<div class="main-content">
-    <div id="file-tree-container">
-        <!-- File tree will be rendered here by renderer.js -->
+    <!-- Title Bar -->
+    <div id="title-bar">
+        <div id="app-title">Code Copier</div>
+        <div id="window-controls">
+            <button id="btn-minimize" class="control-btn">
+                <svg width="10" height="1" viewBox="0 0 10 1"><path d="M0 0h10v1H0z" fill="currentColor"/></svg>
+            </button>
+            <button id="btn-maximize" class="control-btn">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1h8v8H1V1zm1 1v6h6V2H2z" fill="currentColor"/></svg>
+            </button>
+            <button id="btn-close" class="control-btn">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.7 0L0 1.7 3.3 5 0 8.3 1.7 10 5 6.7 8.3 10 10 8.3 6.7 5 10 1.7 8.3 0 5 3.3 1.7 0z" fill="currentColor"/></svg>
+            </button>
+        </div>
     </div>
-    <div class="resizer"></div>
-    <div id="status-area">
-        <div class="welcome-message">Select a folder to begin.</div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <button id="select-folder-btn" class="primary">
+            <svg class="svg-icon" viewBox="0 0 16 16"><path d="M14.5 3H7.71l-.85-.85L6.51 2h-5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zM7 3h7v10H2V3h5z" fill="currentColor"/></svg>
+            Open Folder
+        </button>
+        <button id="refresh-btn">
+            <svg class="svg-icon" viewBox="0 0 16 16"><path d="M13.65 7.77a.58.58 0 00-.54.68 5.11 5.11 0 01-8.58 4.25l1.08-.29a.58.58 0 00.41-.71.57.57 0 00-.71-.4l-2.61.7a.58.58 0 00-.41.69l.7 2.62a.58.58 0 00.56.42.63.63 0 00 .16 0 .58.58 0 00 .4-.72l-.3-1.12A6.27 6.27 0 0014.2 8.32a.58.58 0 00-.55-.55z" fill="currentColor"/></svg>
+            Refresh
+        </button>
+        <button id="copy-structure-btn">
+            <svg class="svg-icon" viewBox="0 0 16 16"><path d="M4 4h8v2H4zM4 8h5v2H4z" fill="currentColor"/><path d="M14 1H2a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V2a1 1 0 00-1-1zM2 2h12v12H2V2z" fill="currentColor"/></svg>
+            Copy Tree
+        </button>
+        <div id="message-box"></div>
     </div>
-</div>
+    
+    <div class="main-content">
+        <!-- LEFT: File Explorer -->
+        <div id="file-tree-container">
+            <div style="padding: 30px 20px; text-align: center; color: var(--text-muted); font-style: italic;">
+                Open a folder to start
+            </div>
+        </div>
+        
+        <div class="resizer"></div>
+        
+        <!-- RIGHT: Staging Area -->
+        <div id="staging-area">
+            <div class="staging-header">
+                <span id="staging-count" class="staging-title">Selected Files (0)</span>
+                <button id="clear-all-btn" class="remove-btn" title="Clear All" style="font-size: 11px; margin:0;">
+                    Clear List
+                </button>
+            </div>
+            
+            <div id="staging-list" class="staging-list">
+                <!-- Javascript populates this -->
+            </div>
+            
+            <div class="staging-footer">
+                <button id="copy-all-btn" class="success" disabled>
+                    <svg class="svg-icon" style="margin-right:5px" viewBox="0 0 16 16"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z" fill="currentColor"/></svg>
+                    Copy to Clipboard
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 <script src="./renderer.js"></script>
 </html>

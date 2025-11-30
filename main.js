@@ -1,63 +1,172 @@
 const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron/main');
 const path = require('node:path');
 const fs = require('node:fs');
+const chokidar = require('chokidar');
 
-// --- COMPREHENSIVE IGNORE CONFIGURATION ---
+// --- GLOBAL REFERENCES ---
+let mainWindow = null;
+let currentWatcher = null;
+
+// --- IGNORE CONFIGURATION ---
 const IGNORED_EXTENSIONS = [
-    // Common binary/non-text formats
-    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
-    '.pdf', '.zip', '.tar', '.gz', '.woff', '.woff2', '.ttf', '.eot',
-    '.mp3', '.mp4', '.mov', '.avi',
-    // Compiled code & artifacts
-    '.pyc', '.o', '.so', '.dll', '.exe',
-    // Lock files
-    '.lock', 'package-lock.json', 'yarn.lock'
+    // --- Images & Media ---
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff', '.heic',
+    '.mp3', '.mp4', '.mov', '.avi', '.wav', '.flac', '.mkv', '.webm',
+    '.obj', '.fbx', '.blend', // 3D models
+
+    // --- Fonts ---
+    '.woff', '.woff2', '.ttf', '.eot', '.otf',
+
+    // --- Archives & Packages ---
+    '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.xz',
+    '.jar', '.war', '.ear', // Java archives
+    '.apk', '.aab', '.ipa', // Mobile app packages
+
+    // --- Compiled / Binary / Executable ---
+    '.exe', '.dll', '.so', '.dylib', '.bin', // System binaries
+    '.o', '.a', '.obj', // C/C++ object files
+    '.class', // Java class files
+    '.pyc', '.pyo', '.pyd', // Python compiled
+    '.gem', // Ruby gems
+
+    // --- Documents (Non-text) ---
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.rtf',
+
+    // --- Design & Adobe ---
+    '.psd', '.ai', '.eps', '.indd', '.sketch', '.fig',
+
+    // --- Database Files ---
+    '.db', '.sqlite', '.sqlite3', '.mdb', '.accde', '.frm', '.ibd',
+
+    // --- Source Maps (Noisy for AI) ---
+    '.map', '.css.map', '.js.map',
+
+    // --- Keys & Certificates (Security) ---
+    '.pem', '.crt', '.key', '.p12', '.pfx', '.keystore', '.jks',
+    
+    // --- Lock Files (Often too verbose for prompts) ---
+    '.lock', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Gemfile.lock', 'composer.lock', 'Cargo.lock',
+    
+    // --- System ---
+    '.DS_Store', 'Thumbs.db', 'desktop.ini'
 ];
 
 const IGNORED_DIRS = [
-    // Most common and important ones
-    'node_modules', '.git', '.idea', '.vscode',
-    // Common build/dist outputs
-    'dist', 'build', 'out', '.next', '.nuxt', 'public',
-    // Python specific
-    '__pycache__', 'venv', '.venv', 'env', '.env',
-    // Caches and logs
-    '.cache', 'logs'
+    // --- General / OS ---
+    '.git', '.svn', '.hg',
+    '.DS_Store', 'Trash', 'tmp', 'temp',
+
+    // --- IDEs & Editors ---
+    '.idea', '.vscode', '.vs', '.settings', '.project', '.classpath', 'nbproject',
+
+    // --- Node / JS ---
+    'node_modules', 'bower_components', 'jspm_packages', '.npm', '.yarn',
+
+    // --- Python ---
+    '__pycache__', 'venv', '.venv', 'env', '.env', 'pip-wheel-metadata', '.pytest_cache', '.mypy_cache',
+
+    // --- Build Outputs / Dist ---
+    'dist', 'build', 'out', 'target', // 'target' catches Rust and Maven builds
+    'bin', 'obj', // C# / .NET
+    'pkg', // Go
+    '_build', 'deps', // Elixir
+
+    // --- Web Frameworks ---
+    '.next', '.nuxt', '.output', '.docusaurus', 'public', 'static', // 'public'/'static' are often just assets
+
+    // --- Java / Kotlin / Android ---
+    '.gradle', 'gradle', '.m2',
+
+    // --- Mobile (iOS) ---
+    'Pods', 'DerivedData', '.xcworkspace',
+
+    // --- PHP / Ruby ---
+    'vendor', '.bundle',
+
+    // --- Terraform / Docker / Cloud ---
+    '.terraform', '.serverless', '.aws-sam', '.vercel', '.netlify',
+
+    // --- Testing & Logs ---
+    'coverage', '.nyc_output', 'test-results',
+    'logs', 'log', 'npm-debug.log*', 'yarn-debug.log*', 'yarn-error.log*',
+
+    // --- AI / Python Specifics ---
+    '.langgraph_api', '.ipynb_checkpoints'
 ];
 
-/**
- * Recursively scans a directory and builds a tree, filtering ignored items.
- */
-function generateFileTree(directoryPath) {
-    const items = fs.readdirSync(directoryPath);
-    const tree = [];
-    for (const item of items) {
-        if (IGNORED_DIRS.includes(item)) continue;
-        const fullPath = path.join(directoryPath, item);
-        try {
-            const stat = fs.statSync(fullPath);
-            if (stat.isDirectory()) {
-                tree.push({ name: item, path: fullPath, type: 'directory', children: generateFileTree(fullPath) });
-            } else if (stat.isFile()) {
-                if (IGNORED_EXTENSIONS.some(ext => item.endsWith(ext))) continue;
-                tree.push({ name: item, path: fullPath, type: 'file' });
-            }
-        } catch (e) {
-            console.error(`Could not stat path: ${fullPath}`, e);
-        }
-    }
-    return tree;
+// --- HELPER: DEBOUNCE ---
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
 }
 
-/**
- * Reads the content of a path, respecting ignore lists and generating relative paths.
- */
+// --- FILE WATCHER ---
+function startWatching(targetPath) {
+    if (currentWatcher) currentWatcher.close();
+
+    const ignoreGlobs = [
+        /(^|[\/\\])\../, // Ignore dotfiles
+        ...IGNORED_DIRS.map(dir => `**/${dir}/**`)
+    ];
+
+    currentWatcher = chokidar.watch(targetPath, {
+        ignored: ignoreGlobs,
+        persistent: true,
+        ignoreInitial: true,
+        awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 }
+    });
+
+    const notifyRenderer = debounce(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('file:system-changed');
+        }
+    }, 1000);
+
+    currentWatcher
+        .on('add', notifyRenderer)
+        .on('change', notifyRenderer)
+        .on('unlink', notifyRenderer)
+        .on('addDir', notifyRenderer)
+        .on('unlinkDir', notifyRenderer);
+}
+
+// --- FILE OPERATIONS ---
+function generateFileTree(directoryPath) {
+    try {
+        const items = fs.readdirSync(directoryPath);
+        const tree = [];
+        for (const item of items) {
+            if (IGNORED_DIRS.includes(item)) continue;
+            const fullPath = path.join(directoryPath, item);
+            try {
+                const stat = fs.statSync(fullPath);
+                if (stat.isDirectory()) {
+                    tree.push({ name: item, path: fullPath, type: 'directory', children: generateFileTree(fullPath) });
+                } else if (stat.isFile()) {
+                    if (IGNORED_EXTENSIONS.some(ext => item.toLowerCase().endsWith(ext))) continue;
+                    tree.push({ name: item, path: fullPath, type: 'file' });
+                }
+            } catch (e) { /* ignore access errors */ }
+        }
+        return tree;
+    } catch (e) {
+        return [];
+    }
+}
+
 function getPathContentAsString(targetPath, rootPath) {
     const stat = fs.statSync(targetPath);
     const baseName = path.basename(targetPath);
 
     if (stat.isFile()) {
-        if (IGNORED_EXTENSIONS.some(ext => baseName.endsWith(ext))) return '';
+        if (IGNORED_EXTENSIONS.some(ext => baseName.toLowerCase().endsWith(ext))) return '';
         try {
             const content = fs.readFileSync(targetPath, 'utf-8');
             const relativePath = path.relative(rootPath, targetPath).replace(/\\/g, '/');
@@ -79,143 +188,104 @@ function getPathContentAsString(targetPath, rootPath) {
     return '';
 }
 
-async function handleDirectoryOpen() {
-    const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openDirectory'] });
-    if (canceled || filePaths.length === 0) return null;
-    const rootPath = filePaths[0];
-    return { name: path.basename(rootPath), path: rootPath, type: 'directory', children: generateFileTree(rootPath) };
-}
-
-async function handleCopyPath(event, { targetPath, rootPath }) {
-    try {
-        const content = getPathContentAsString(targetPath, rootPath);
-        if (!content) return "No text content found to copy.";
-        clipboard.writeText(content);
-        return `✅ Success! Copied ${content.length.toLocaleString()} characters to clipboard.`;
-    } catch (error) {
-        console.error("Error processing path:", error);
-        return `❌ Error: ${error.message}`;
-    }
-}
-
-async function handleReadFile(event, { filePath }) {
-    try {
-        const stat = fs.statSync(filePath);
-        if (!stat.isFile()) {
-            return { error: "Path is not a file" };
-        }
-
-        const baseName = path.basename(filePath);
-        if (IGNORED_EXTENSIONS.some(ext => baseName.endsWith(ext))) {
-            return { error: "File type is not supported for viewing" };
-        }
-
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const relativePath = path.relative(path.dirname(filePath), filePath);
-
-        return {
-            content,
-            fileName: baseName,
-            filePath: filePath,
-            relativePath: relativePath
-        };
-    } catch (error) {
-        console.error("Error reading file:", error);
-        return { error: `Error reading file: ${error.message}` };
-    }
-}
-
-function generateTreeStructureString(node, prefix = '', isLast = true, rootPath = '') {
+function generateTreeStructureString(node, prefix = '', isLast = true) {
     let result = '';
-
-    // Handle root node differently - show the directory name with trailing slash
-    if (prefix === '') {
-        const dirName = path.basename(node.path);
-        result += `Directory structure:\n└── ${dirName}/\n`;
-
-        if (node.children && node.children.length > 0) {
-            // Sort children: directories first, then files
-            const sortedChildren = node.children.sort((a, b) => {
-                if (a.type === b.type) return a.name.localeCompare(b.name);
-                return a.type === 'directory' ? -1 : 1;
-            });
-
-            sortedChildren.forEach((child, index) => {
-                const childLast = index === sortedChildren.length - 1;
-                const childPrefix = '    ';
-                result += generateChildTreeString(child, '│   ', childLast, node.path);
-            });
-        }
-    }
-
-    return result;
-}
-
-function generateChildTreeString(node, prefix = '', isLast = true, parentPath = '') {
-    let result = '';
-
-    // Add the current node
     const connector = isLast ? '└── ' : '├── ';
-    const nodeName = node.type === 'directory' ? `${node.name}/` : node.name;
-    result += prefix + connector + nodeName + '\n';
-
-    // Add children if it's a directory
+    // Root check
+    if(prefix === '' && node.type === 'directory') {
+         result += `Directory structure: ${node.name}/\n`;
+    } else {
+        result += prefix + connector + (node.type === 'directory' ? `${node.name}/` : node.name) + '\n';
+    }
+    
     if (node.type === 'directory' && node.children && node.children.length > 0) {
-        const nextPrefix = prefix + (isLast ? '    ' : '│   ');
-
-        // Sort children: directories first, then files
+        // Fix prefix for next level
+        const childPrefix = prefix + (prefix === '' ? '' : (isLast ? '    ' : '│   ')); 
+        
         const sortedChildren = node.children.sort((a, b) => {
             if (a.type === b.type) return a.name.localeCompare(b.name);
             return a.type === 'directory' ? -1 : 1;
         });
-
         sortedChildren.forEach((child, index) => {
             const childLast = index === sortedChildren.length - 1;
-            result += generateChildTreeString(child, nextPrefix, childLast, node.path);
+            result += generateTreeStructureString(child, childPrefix, childLast);
         });
     }
-
     return result;
 }
 
-async function handleCopyStructure(event, { rootPath }) {
+// --- IPC HANDLERS ---
+async function handleDirectoryOpen() {
+    const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+    if (canceled || filePaths.length === 0) return null;
+    const rootPath = filePaths[0];
+    startWatching(rootPath);
+    return { name: path.basename(rootPath), path: rootPath, type: 'directory', children: generateFileTree(rootPath) };
+}
+
+async function handleRefreshTree(event, dirPath) {
+    if (!dirPath) return null;
     try {
-        if (!rootPath) {
-            return "❌ Error: No folder selected. Please select a folder first.";
+        return { name: path.basename(dirPath), path: dirPath, type: 'directory', children: generateFileTree(dirPath) };
+    } catch (e) { return null; }
+}
+
+async function handleCopyMultiple(event, { paths, rootPath }) {
+    try {
+        let finalContent = '';
+        let count = 0;
+        for (const itemPath of paths) {
+            const content = getPathContentAsString(itemPath, rootPath);
+            if (content) {
+                finalContent += content;
+                count++;
+            }
         }
-
-        // Generate the file tree structure
-        const fileTree = generateFileTree(rootPath);
-        const rootNode = { name: path.basename(rootPath), path: rootPath, type: 'directory', children: fileTree };
-
-        // Generate the ASCII tree string
-        const treeString = generateTreeStructureString(rootNode);
-
-        // Copy to clipboard
-        clipboard.writeText(treeString);
-
-        return `✅ Success! Copied folder structure to clipboard.`;
+        if (!finalContent) return "No text content found.";
+        clipboard.writeText(finalContent);
+        return `✅ Success! Copied ${count} items (${finalContent.length.toLocaleString()} chars).`;
     } catch (error) {
-        console.error("Error copying structure:", error);
         return `❌ Error: ${error.message}`;
     }
 }
 
+async function handleCopyStructure(event, { rootPath }) {
+    try {
+        const fileTree = generateFileTree(rootPath);
+        const rootNode = { name: path.basename(rootPath), path: rootPath, type: 'directory', children: fileTree };
+        const treeString = generateTreeStructureString(rootNode);
+        clipboard.writeText(treeString);
+        return `✅ Copied directory structure.`;
+    } catch (error) {
+        return `❌ Error: ${error.message}`;
+    }
+}
+
+// --- APP LIFECYCLE ---
 function createWindow() {
-    const win = new BrowserWindow({
+    mainWindow = new BrowserWindow({
         width: 1000,
         height: 800,
-        icon: path.join(__dirname, 'assets/icons/icon.png'),
+        minWidth: 600,
+        minHeight: 400,
+        frame: false, // Custom Title Bar
+        titleBarStyle: 'hidden',
         webPreferences: { preload: path.join(__dirname, 'preload.js') }
     });
-    win.loadFile('index.html');
+    mainWindow.loadFile('index.html');
 }
 
 app.whenReady().then(() => {
     ipcMain.handle('dialog:openDirectory', handleDirectoryOpen);
-    ipcMain.handle('context:copyPath', handleCopyPath);
-    ipcMain.handle('file:read', handleReadFile);
+    ipcMain.handle('file:refreshTree', handleRefreshTree);
+    ipcMain.handle('context:copyMultiple', handleCopyMultiple);
     ipcMain.handle('context:copyStructure', handleCopyStructure);
+
+    // Window Controls
+    ipcMain.on('window:minimize', () => mainWindow.minimize());
+    ipcMain.on('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize());
+    ipcMain.on('window:close', () => mainWindow.close());
+
     createWindow();
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

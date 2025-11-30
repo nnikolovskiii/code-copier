@@ -5,14 +5,18 @@ module.exports = {
   packagerConfig: {
     asar: true,
     icon: './assets/icons/icon',
-    name: 'Code Copier',        // This is the Human Readable Name (Title bar, Start Menu)
-    executableName: 'code-copier', // <--- ADD THIS LINE (The actual file on disk)
+    name: 'Code Copier',        // Display Name (Title Bars, Start Menu)
+    executableName: 'code-copier', // <--- CRITICAL FIX: The actual filename (no spaces)
   },
   rebuildConfig: {},
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        // Windows Config
+        setupExe: 'CodeCopierSetup.exe',
+        setupIcon: './assets/icons/icon.ico',
+      },
     },
     {
       name: '@electron-forge/maker-zip',
@@ -22,8 +26,8 @@ module.exports = {
       name: '@electron-forge/maker-deb',
       config: {
         options: {
-          bin: 'code-copier', // Ensures the deb knows what binary to link
-          name: 'code-copier',
+          bin: 'code-copier', // Tells linux to link this binary
+          name: 'code-copier', // Package name
           productName: 'Code Copier'
         }
       },

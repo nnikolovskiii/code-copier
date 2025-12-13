@@ -188,27 +188,37 @@ function getPathContentAsString(targetPath, rootPath) {
     return '';
 }
 
-function generateTreeStructureString(node, prefix = '', isLast = true) {
+function generateTreeStructureString(node, prefix = '', isLast = true, isRoot = true) {
     let result = '';
-    const connector = isLast ? '└── ' : '├── ';
-    // Root check
-    if(prefix === '' && node.type === 'directory') {
-         result += `Directory structure: ${node.name}/\n`;
+
+    if (isRoot) {
+        // Print the root folder name clearly at the top
+        result += `${node.name}/\n`;
     } else {
-        result += prefix + connector + (node.type === 'directory' ? `${node.name}/` : node.name) + '\n';
+        // Use standard tree connectors
+        const connector = isLast ? '└── ' : '├── ';
+        result += `${prefix}${connector}${node.name}${node.type === 'directory' ? '/' : ''}\n`;
     }
-    
+
     if (node.type === 'directory' && node.children && node.children.length > 0) {
-        // Fix prefix for next level
-        const childPrefix = prefix + (prefix === '' ? '' : (isLast ? '    ' : '│   ')); 
-        
+        // Prepare the prefix for the children of THIS node
+        // If we are root, children don't get a pipe prefix yet.
+        // If we are not root, we add 4 spaces (if last) or pipe + 3 spaces (if not last)
+        let childPrefix = prefix;
+        if (!isRoot) {
+            childPrefix += isLast ? '    ' : '│   ';
+        }
+
+        // Sort: Directories first, then files (alphabetical)
         const sortedChildren = node.children.sort((a, b) => {
             if (a.type === b.type) return a.name.localeCompare(b.name);
             return a.type === 'directory' ? -1 : 1;
         });
+
         sortedChildren.forEach((child, index) => {
-            const childLast = index === sortedChildren.length - 1;
-            result += generateTreeStructureString(child, childPrefix, childLast);
+            const isChildLast = index === sortedChildren.length - 1;
+            // Recurse with isRoot = false
+            result += generateTreeStructureString(child, childPrefix, isChildLast, false);
         });
     }
     return result;
@@ -253,7 +263,11 @@ async function handleCopyStructure(event, { rootPath }) {
     try {
         const fileTree = generateFileTree(rootPath);
         const rootNode = { name: path.basename(rootPath), path: rootPath, type: 'directory', children: fileTree };
+        
+        // This call works automatically with the defaults: 
+        // prefix='', isLast=true, isRoot=true
         const treeString = generateTreeStructureString(rootNode);
+        
         clipboard.writeText(treeString);
         return `✅ Copied directory structure.`;
     } catch (error) {

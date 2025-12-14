@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron/mai
 const path = require('node:path');
 const fs = require('node:fs');
 const chokidar = require('chokidar');
+const { exec } = require('node:child_process');
 
 // --- GLOBAL REFERENCES ---
 let mainWindow = null;
@@ -192,24 +193,18 @@ function generateTreeStructureString(node, prefix = '', isLast = true, isRoot = 
     let result = '';
 
     if (isRoot) {
-        // Print the root folder name clearly at the top
         result += `${node.name}/\n`;
     } else {
-        // Use standard tree connectors
         const connector = isLast ? '└── ' : '├── ';
         result += `${prefix}${connector}${node.name}${node.type === 'directory' ? '/' : ''}\n`;
     }
 
     if (node.type === 'directory' && node.children && node.children.length > 0) {
-        // Prepare the prefix for the children of THIS node
-        // If we are root, children don't get a pipe prefix yet.
-        // If we are not root, we add 4 spaces (if last) or pipe + 3 spaces (if not last)
         let childPrefix = prefix;
         if (!isRoot) {
             childPrefix += isLast ? '    ' : '│   ';
         }
 
-        // Sort: Directories first, then files (alphabetical)
         const sortedChildren = node.children.sort((a, b) => {
             if (a.type === b.type) return a.name.localeCompare(b.name);
             return a.type === 'directory' ? -1 : 1;
@@ -217,11 +212,39 @@ function generateTreeStructureString(node, prefix = '', isLast = true, isRoot = 
 
         sortedChildren.forEach((child, index) => {
             const isChildLast = index === sortedChildren.length - 1;
-            // Recurse with isRoot = false
             result += generateTreeStructureString(child, childPrefix, isChildLast, false);
         });
     }
     return result;
+}
+
+// --- GIT HELPER ---
+function getGitStagedFiles(rootPath) {
+    return new Promise((resolve) => {
+        // 'git diff --name-only --cached' lists files that are staged (green in git status)
+        exec('git diff --name-only --cached', { cwd: rootPath }, (error, stdout) => {
+            if (error) {
+                console.error("Git error or not a repo:", error.message);
+                resolve([]);
+                return;
+            }
+
+            const files = stdout.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+
+            const absolutePaths = [];
+            
+            // Verify files exist (exclude deleted files that are staged)
+            for (const file of files) {
+                const fullPath = path.join(rootPath, file);
+                if (fs.existsSync(fullPath)) {
+                    absolutePaths.push(fullPath);
+                }
+            }
+            resolve(absolutePaths);
+        });
+    });
 }
 
 // --- IPC HANDLERS ---
@@ -263,16 +286,16 @@ async function handleCopyStructure(event, { rootPath }) {
     try {
         const fileTree = generateFileTree(rootPath);
         const rootNode = { name: path.basename(rootPath), path: rootPath, type: 'directory', children: fileTree };
-        
-        // This call works automatically with the defaults: 
-        // prefix='', isLast=true, isRoot=true
         const treeString = generateTreeStructureString(rootNode);
-        
         clipboard.writeText(treeString);
         return `✅ Copied directory structure.`;
     } catch (error) {
         return `❌ Error: ${error.message}`;
     }
+}
+
+async function handleGetGitStaged(event, rootPath) {
+    return await getGitStagedFiles(rootPath);
 }
 
 // --- APP LIFECYCLE ---
@@ -294,6 +317,7 @@ app.whenReady().then(() => {
     ipcMain.handle('file:refreshTree', handleRefreshTree);
     ipcMain.handle('context:copyMultiple', handleCopyMultiple);
     ipcMain.handle('context:copyStructure', handleCopyStructure);
+    ipcMain.handle('git:getStaged', handleGetGitStaged); // <--- GIT HANDLER
 
     // Window Controls
     ipcMain.on('window:minimize', () => mainWindow.minimize());

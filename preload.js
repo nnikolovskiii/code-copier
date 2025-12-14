@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     refreshTree: (path) => ipcRenderer.invoke('file:refreshTree', path),
     copyStructure: (data) => ipcRenderer.invoke('context:copyStructure', data),
     copyMultiple: (data) => ipcRenderer.invoke('context:copyMultiple', data),
+    getGitStaged: (rootPath) => ipcRenderer.invoke('git:getStaged', rootPath), // <--- New API
     onFileSystemChange: (callback) => ipcRenderer.on('file:system-changed', (_event, value) => callback(value)),
     
     // Window Controls

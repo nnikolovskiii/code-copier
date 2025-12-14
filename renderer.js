@@ -1,6 +1,7 @@
 const selectFolderBtn = document.getElementById('select-folder-btn');
 const copyStructureBtn = document.getElementById('copy-structure-btn');
 const refreshBtn = document.getElementById('refresh-btn');
+const gitStagedBtn = document.getElementById('git-staged-btn'); // <--- New button
 const fileTreeContainer = document.getElementById('file-tree-container');
 const messageBox = document.getElementById('message-box');
 const resizer = document.querySelector('.resizer');
@@ -240,6 +241,53 @@ async function refreshTreeLogic(isAuto = false) {
 
 refreshBtn.addEventListener('click', () => refreshTreeLogic(false));
 window.electronAPI.onFileSystemChange(() => refreshTreeLogic(true));
+
+// --- GIT STAGED LOGIC (NEW) ---
+gitStagedBtn.addEventListener('click', async () => {
+    if (!rootPath) {
+        messageBox.textContent = 'Open a folder first';
+        return;
+    }
+
+    messageBox.textContent = 'Checking Git...';
+    
+    try {
+        const stagedFiles = await window.electronAPI.getGitStaged(rootPath);
+        
+        if (stagedFiles.length === 0) {
+            messageBox.textContent = 'No staged files found';
+            setTimeout(() => messageBox.textContent = '', 3000);
+            return;
+        }
+
+        let addedCount = 0;
+        const getBaseName = (p) => p.split(/[/\\]/).pop();
+
+        stagedFiles.forEach(fullPath => {
+            if (!selectedItems.has(fullPath)) {
+                selectedItems.set(fullPath, { 
+                    name: getBaseName(fullPath), 
+                    type: 'file' 
+                });
+                addedCount++;
+            }
+        });
+
+        if (addedCount > 0) {
+            updateStagingView();
+            refreshTreeLogic(true);
+            messageBox.textContent = `Added ${addedCount} staged files`;
+        } else {
+            messageBox.textContent = 'Files already selected';
+        }
+
+        setTimeout(() => messageBox.textContent = '', 3000);
+
+    } catch (error) {
+        console.error(error);
+        messageBox.textContent = 'Error checking git';
+    }
+});
 
 copyStructureBtn.addEventListener('click', async () => {
     messageBox.textContent = 'Generating...';

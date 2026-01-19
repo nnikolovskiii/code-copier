@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron/main');
+const hljs = require('highlight.js');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu } = require('electron/main');
 const path = require('node:path');
 const fs = require('node:fs');
 const chokidar = require('chokidar');
@@ -8,90 +9,35 @@ const { exec } = require('node:child_process');
 let mainWindow = null;
 let currentWatcher = null;
 
-// --- IGNORE CONFIGURATION ---
+// [KEEP YOUR EXISTING IGNORED_EXTENSIONS AND IGNORED_DIRS ARRAYS HERE]
+// To save space in this answer, I am assuming you keep the long arrays
+// from your original file. They are crucial.
 const IGNORED_EXTENSIONS = [
-    // --- Images & Media ---
     '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff', '.heic',
     '.mp3', '.mp4', '.mov', '.avi', '.wav', '.flac', '.mkv', '.webm',
-    '.obj', '.fbx', '.blend', // 3D models
-
-    // --- Fonts ---
-    '.woff', '.woff2', '.ttf', '.eot', '.otf',
-
-    // --- Archives & Packages ---
-    '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.xz',
-    '.jar', '.war', '.ear', // Java archives
-    '.apk', '.aab', '.ipa', // Mobile app packages
-
-    // --- Compiled / Binary / Executable ---
-    '.exe', '.dll', '.so', '.dylib', '.bin', // System binaries
-    '.o', '.a', '.obj', // C/C++ object files
-    '.class', // Java class files
-    '.pyc', '.pyo', '.pyd', // Python compiled
-    '.gem', // Ruby gems
-
-    // --- Documents (Non-text) ---
+    '.obj', '.fbx', '.blend', '.woff', '.woff2', '.ttf', '.eot', '.otf',
+    '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.xz', '.jar', '.war', '.ear',
+    '.apk', '.aab', '.ipa', '.exe', '.dll', '.so', '.dylib', '.bin',
+    '.o', '.a', '.obj', '.class', '.pyc', '.pyo', '.pyd', '.gem',
     '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.rtf',
-
-    // --- Design & Adobe ---
     '.psd', '.ai', '.eps', '.indd', '.sketch', '.fig',
-
-    // --- Database Files ---
     '.db', '.sqlite', '.sqlite3', '.mdb', '.accde', '.frm', '.ibd',
-
-    // --- Source Maps (Noisy for AI) ---
     '.map', '.css.map', '.js.map',
-
-    // --- Keys & Certificates (Security) ---
     '.pem', '.crt', '.key', '.p12', '.pfx', '.keystore', '.jks',
-    
-    // --- Lock Files (Often too verbose for prompts) ---
     '.lock', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Gemfile.lock', 'composer.lock', 'Cargo.lock',
-    
-    // --- System ---
     '.DS_Store', 'Thumbs.db', 'desktop.ini'
 ];
 
 const IGNORED_DIRS = [
-    // --- General / OS ---
-    '.git', '.svn', '.hg',
-    '.DS_Store', 'Trash', 'tmp', 'temp',
-
-    // --- IDEs & Editors ---
+    '.git', '.svn', '.hg', '.DS_Store', 'Trash', 'tmp', 'temp',
     '.idea', '.vscode', '.vs', '.settings', '.project', '.classpath', 'nbproject',
-
-    // --- Node / JS ---
     'node_modules', 'bower_components', 'jspm_packages', '.npm', '.yarn',
-
-    // --- Python ---
     '__pycache__', 'venv', '.venv', 'env', '.env', 'pip-wheel-metadata', '.pytest_cache', '.mypy_cache',
-
-    // --- Build Outputs / Dist ---
-    'dist', 'build', 'out', 'target', // 'target' catches Rust and Maven builds
-    'bin', 'obj', // C# / .NET
-    'pkg', // Go
-    '_build', 'deps', // Elixir
-
-    // --- Web Frameworks ---
-    '.next', '.nuxt', '.output', '.docusaurus', 'public', 'static', // 'public'/'static' are often just assets
-
-    // --- Java / Kotlin / Android ---
-    '.gradle', 'gradle', '.m2',
-
-    // --- Mobile (iOS) ---
-    'Pods', 'DerivedData', '.xcworkspace',
-
-    // --- PHP / Ruby ---
-    'vendor', '.bundle',
-
-    // --- Terraform / Docker / Cloud ---
-    '.terraform', '.serverless', '.aws-sam', '.vercel', '.netlify',
-
-    // --- Testing & Logs ---
-    'coverage', '.nyc_output', 'test-results',
-    'logs', 'log', 'npm-debug.log*', 'yarn-debug.log*', 'yarn-error.log*',
-
-    // --- AI / Python Specifics ---
+    'dist', 'build', 'out', 'target', 'bin', 'obj', 'pkg', '_build', 'deps',
+    '.next', '.nuxt', '.output', '.docusaurus', 'public', 'static',
+    '.gradle', 'gradle', '.m2', 'Pods', 'DerivedData', '.xcworkspace',
+    'vendor', '.bundle', '.terraform', '.serverless', '.aws-sam', '.vercel', '.netlify',
+    'coverage', '.nyc_output', 'test-results', 'logs', 'log', 'npm-debug.log*', 'yarn-debug.log*', 'yarn-error.log*',
     '.langgraph_api', '.ipynb_checkpoints'
 ];
 
@@ -139,7 +85,7 @@ function startWatching(targetPath) {
 }
 
 // --- FILE OPERATIONS ---
-function generateFileTree(directoryPath) {
+function generateFileTree(directoryPath, includeAllExtensions = false) {
     try {
         const items = fs.readdirSync(directoryPath);
         const tree = [];
@@ -149,9 +95,14 @@ function generateFileTree(directoryPath) {
             try {
                 const stat = fs.statSync(fullPath);
                 if (stat.isDirectory()) {
-                    tree.push({ name: item, path: fullPath, type: 'directory', children: generateFileTree(fullPath) });
+                    tree.push({
+                        name: item,
+                        path: fullPath,
+                        type: 'directory',
+                        children: generateFileTree(fullPath, includeAllExtensions)
+                    });
                 } else if (stat.isFile()) {
-                    if (IGNORED_EXTENSIONS.some(ext => item.toLowerCase().endsWith(ext))) continue;
+                    if (!includeAllExtensions && IGNORED_EXTENSIONS.some(ext => item.toLowerCase().endsWith(ext))) continue;
                     tree.push({ name: item, path: fullPath, type: 'file' });
                 }
             } catch (e) { /* ignore access errors */ }
@@ -163,6 +114,7 @@ function generateFileTree(directoryPath) {
 }
 
 function getPathContentAsString(targetPath, rootPath) {
+    // [KEEP EXISTING LOGIC FOR COPYING]
     const stat = fs.statSync(targetPath);
     const baseName = path.basename(targetPath);
 
@@ -189,27 +141,49 @@ function getPathContentAsString(targetPath, rootPath) {
     return '';
 }
 
-function generateTreeStructureString(node, prefix = '', isLast = true, isRoot = true) {
-    let result = '';
+// --- NEW: READ FILE FOR VIEWER ---
+async function handleReadFile(event, filePath) {
+    try {
+        const stat = fs.statSync(filePath);
+        if (stat.size > 2 * 1024 * 1024) return { error: 'File is too large to display.' };
+        if (IGNORED_EXTENSIONS.some(ext => filePath.toLowerCase().endsWith(ext))) {
+            return { error: 'Binary or ignored file type.' };
+        }
 
+        const content = fs.readFileSync(filePath, 'utf-8');
+
+        // --- NEW HIGHLIGHTING LOGIC ---
+        // Try to detect language based on content
+        const highlighted = hljs.highlightAuto(content);
+
+        return {
+            content: content, // Keep raw content just in case
+            html: highlighted.value, // The colored HTML
+            language: highlighted.language // The detected language
+        };
+        // ------------------------------
+
+    } catch (error) {
+        return { error: error.message };
+    }
+}
+
+function generateTreeStructureString(node, prefix = '', isLast = true, isRoot = true) {
+    // [KEEP EXISTING LOGIC]
+    let result = '';
     if (isRoot) {
         result += `${node.name}/\n`;
     } else {
         const connector = isLast ? '└── ' : '├── ';
         result += `${prefix}${connector}${node.name}${node.type === 'directory' ? '/' : ''}\n`;
     }
-
     if (node.type === 'directory' && node.children && node.children.length > 0) {
         let childPrefix = prefix;
-        if (!isRoot) {
-            childPrefix += isLast ? '    ' : '│   ';
-        }
-
+        if (!isRoot) childPrefix += isLast ? '    ' : '│   ';
         const sortedChildren = node.children.sort((a, b) => {
             if (a.type === b.type) return a.name.localeCompare(b.name);
             return a.type === 'directory' ? -1 : 1;
         });
-
         sortedChildren.forEach((child, index) => {
             const isChildLast = index === sortedChildren.length - 1;
             result += generateTreeStructureString(child, childPrefix, isChildLast, false);
@@ -221,30 +195,34 @@ function generateTreeStructureString(node, prefix = '', isLast = true, isRoot = 
 // --- GIT HELPER ---
 function getGitStagedFiles(rootPath) {
     return new Promise((resolve) => {
-        // 'git diff --name-only --cached' lists files that are staged (green in git status)
         exec('git diff --name-only --cached', { cwd: rootPath }, (error, stdout) => {
             if (error) {
                 console.error("Git error or not a repo:", error.message);
                 resolve([]);
                 return;
             }
-
-            const files = stdout.split('\n')
-                .map(line => line.trim())
-                .filter(line => line.length > 0);
-
+            const files = stdout.split('\n').map(line => line.trim()).filter(line => line.length > 0);
             const absolutePaths = [];
-            
-            // Verify files exist (exclude deleted files that are staged)
             for (const file of files) {
                 const fullPath = path.join(rootPath, file);
-                if (fs.existsSync(fullPath)) {
-                    absolutePaths.push(fullPath);
-                }
+                if (fs.existsSync(fullPath)) absolutePaths.push(fullPath);
             }
             resolve(absolutePaths);
         });
     });
+}
+
+function createMenu() {
+    // [KEEP EXISTING MENU]
+    const isMac = process.platform === 'darwin';
+    const template = [
+        ...(isMac ? [{ label: app.name, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
+        { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'delete' }, { type: 'separator' }, { role: 'selectAll' }] },
+        { label: 'View', submenu: [{ role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { label: 'Zoom In', accelerator: 'CommandOrControl+=', role: 'zoomIn' }, { label: 'Zoom Out', accelerator: 'CommandOrControl+-', role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
+        { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }, ...(isMac ? [{ type: 'separator' }, { role: 'front' }, { type: 'separator' }, { role: 'window' }] : [{ role: 'close' }])] }
+    ];
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
 }
 
 // --- IPC HANDLERS ---
@@ -258,9 +236,7 @@ async function handleDirectoryOpen() {
 
 async function handleRefreshTree(event, dirPath) {
     if (!dirPath) return null;
-    try {
-        return { name: path.basename(dirPath), path: dirPath, type: 'directory', children: generateFileTree(dirPath) };
-    } catch (e) { return null; }
+    try { return { name: path.basename(dirPath), path: dirPath, type: 'directory', children: generateFileTree(dirPath) }; } catch (e) { return null; }
 }
 
 async function handleCopyMultiple(event, { paths, rootPath }) {
@@ -284,7 +260,7 @@ async function handleCopyMultiple(event, { paths, rootPath }) {
 
 async function handleCopyStructure(event, { rootPath }) {
     try {
-        const fileTree = generateFileTree(rootPath);
+        const fileTree = generateFileTree(rootPath, true);
         const rootNode = { name: path.basename(rootPath), path: rootPath, type: 'directory', children: fileTree };
         const treeString = generateTreeStructureString(rootNode);
         clipboard.writeText(treeString);
@@ -294,6 +270,30 @@ async function handleCopyStructure(event, { rootPath }) {
     }
 }
 
+function getGitDiff(rootPath) {
+    return new Promise((resolve) => {
+        // 'git diff --cached' returns ONLY the changes that have been 'git add'-ed.
+        exec('git diff --cached', {
+            cwd: rootPath,
+            maxBuffer: 10 * 1024 * 1024 // <--- FIX: Increase limit to 10MB (default was 1MB)
+        }, (error, stdout, stderr) => {
+            if (error) {
+                console.error("[Git] Error:", error.message);
+
+                // Specific error handling
+                if (error.message.includes('maxBuffer')) {
+                    resolve({ error: "Staged content is too large (>10MB). Unstage large files like lock-files." });
+                } else {
+                    resolve({ error: "Git error. Check terminal for details." });
+                }
+                return;
+            }
+            resolve({ content: stdout });
+        });
+    });
+}
+
+
 async function handleGetGitStaged(event, rootPath) {
     return await getGitStagedFiles(rootPath);
 }
@@ -301,25 +301,39 @@ async function handleGetGitStaged(event, rootPath) {
 // --- APP LIFECYCLE ---
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1000,
+        width: 1200, // Increased default width for 3 columns
         height: 800,
-        minWidth: 600,
-        minHeight: 400,
-        frame: false, // Custom Title Bar
+        minWidth: 800,
+        minHeight: 500,
+        frame: false,
         titleBarStyle: 'hidden',
         webPreferences: { preload: path.join(__dirname, 'preload.js') }
     });
     mainWindow.loadFile('index.html');
 }
 
+async function handleCopyGitDiff(event, rootPath) {
+    const result = await getGitDiff(rootPath);
+
+    if (result.error) return `❌ Error: ${result.error}`;
+
+    if (!result.content || result.content.trim() === '') {
+        // Specific message helping the user understand why it's empty
+        return "No staged changes. (Did you run 'git add'?)";
+    }
+
+    clipboard.writeText(result.content);
+    return "✅ Copied staged changes to clipboard";
+}
 app.whenReady().then(() => {
+    createMenu();
     ipcMain.handle('dialog:openDirectory', handleDirectoryOpen);
     ipcMain.handle('file:refreshTree', handleRefreshTree);
+    ipcMain.handle('file:readFile', handleReadFile); // <--- New Handler
     ipcMain.handle('context:copyMultiple', handleCopyMultiple);
     ipcMain.handle('context:copyStructure', handleCopyStructure);
-    ipcMain.handle('git:getStaged', handleGetGitStaged); // <--- GIT HANDLER
-
-    // Window Controls
+    ipcMain.handle('git:getStaged', handleGetGitStaged);
+    ipcMain.handle('git:copyDiff', handleCopyGitDiff); // <--- ADD THIS
     ipcMain.on('window:minimize', () => mainWindow.minimize());
     ipcMain.on('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize());
     ipcMain.on('window:close', () => mainWindow.close());

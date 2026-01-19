@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:;" />
     <title>Code Copier</title>
     <style>
         :root {
@@ -12,19 +12,21 @@
             --bg-header: #323233;
             --bg-hover: #2a2d2e;
             --bg-active: #37373d;
-            
+            --bg-editor: #1e1e1e;
+
             --border-subtle: #454545;
-            
+
             --text-main: #cccccc;
             --text-muted: #8b949e;
             --text-bright: #ffffff;
-            
+
             --accent-primary: #007acc;
             --accent-hover: #0062a3;
             --accent-success: #2da042;
-            --accent-danger: #ea4c89; 
+            --accent-danger: #ea4c89;
 
             --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-code: "Consolas", "Courier New", monospace;
         }
 
         * { box-sizing: border-box; }
@@ -38,7 +40,7 @@
             background-color: var(--bg-app);
             color: var(--text-main);
             overflow: hidden;
-            font-size: 13px;
+            font-size: 14px;
         }
 
         /* --- SCROLLBARS --- */
@@ -50,10 +52,57 @@
 
         /* --- ICONS --- */
         .svg-icon { width: 16px; height: 16px; fill: currentColor; display: inline-block; vertical-align: middle; }
-        .icon-folder { color: #dcb67a; }
-        .icon-file { color: #9cdcfe; }
-        .icon-chevron { color: var(--text-muted); transition: transform 0.15s; width: 14px; height: 14px;}
+        .btn-icon { width: 18px; height: 18px; display: inline-block; vertical-align: middle; margin-right: 6px; object-fit: contain; }
+        .tree-icon { width: 20px; height: 20px; display: inline-block; vertical-align: middle; margin-right: 8px; object-fit: contain; }
+        .icon-chevron { color: var(--text-muted); transition: transform 0.15s; width: 16px; height: 16px;}
 
+        /* New class for your PNG buttons */
+        .btn-icon-state { width: 12px; height: 12px; object-fit: contain; display: block; }
+        .btn-icon-state1 { width: 20px; height: 20px; object-fit: contain; display: block; }
+        .btn-icon-state2 { width: 8px; height: 8px; object-fit: contain; display: block; }
+
+        pre code.hljs {
+            display: block;
+            overflow-x: auto;
+            padding: 0;
+            background: transparent;
+            color: #d4d4d4;
+        }
+
+        /* Keywords */
+        .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link {
+            color: #569cd6;
+        }
+
+        /* Functions & Classes */
+        .hljs-function, .hljs-title, .hljs-attr, .hljs-built_in, .hljs-params {
+            color: #dcdcaa;
+        }
+
+        /* Strings */
+        .hljs-string, .hljs-type, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-addition, .hljs-variable, .hljs-template-tag, .hljs-template-variable {
+            color: #ce9178;
+        }
+
+        /* Comments */
+        .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta {
+            color: #6a9955;
+        }
+
+        /* Numbers & Booleans */
+        .hljs-number, .hljs-boolean {
+            color: #b5cea8;
+        }
+
+        /* Control Flow / Regex */
+        .hljs-regexp {
+            color: #d16969;
+        }
+
+        /* HTML Tags */
+        .hljs-tag, .hljs-name {
+            color: #569cd6;
+        }
         /* --- TITLE BAR --- */
         #title-bar {
             height: 35px;
@@ -61,24 +110,19 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            -webkit-app-region: drag; 
+            -webkit-app-region: drag;
             user-select: none;
             border-bottom: 1px solid #111;
         }
-
         #app-title { margin-left: 15px; font-weight: 500; font-size: 12px; color: var(--text-muted); letter-spacing: 0.5px; }
-        
         #window-controls { display: flex; -webkit-app-region: no-drag; height: 100%; }
-        .control-btn {
-            width: 46px; height: 100%; border: none; background: transparent; color: var(--text-main);
-            display: flex; justify-content: center; align-items: center; cursor: default; transition: background 0.1s;
-        }
+        .control-btn { width: 46px; height: 100%; border: none; background: transparent; color: var(--text-main); display: flex; justify-content: center; align-items: center; cursor: default; transition: background 0.1s; }
         .control-btn:hover { background-color: var(--bg-active); }
         #btn-close:hover { background-color: #c42b1c; color: white; }
 
         /* --- TOOLBAR --- */
         .toolbar {
-            padding: 10px 15px;
+            padding: 8px 15px;
             border-bottom: 1px solid var(--border-subtle);
             background-color: var(--bg-app);
             display: flex;
@@ -86,249 +130,290 @@
             gap: 10px;
             flex-shrink: 0;
         }
-
         button {
-            background-color: var(--bg-active);
-            color: var(--text-main);
-            border: 1px solid #444;
-            padding: 6px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 6px;
+            background-color: var(--bg-active); color: var(--text-main); border: 1px solid #444;
+            padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+            transition: all 0.2s; display: flex; align-items: center; gap: 6px;
         }
         button:hover { background-color: #505059; color: var(--text-bright); }
         button:active { transform: translateY(1px); }
-        
         button.primary { background-color: var(--accent-primary); color: white; border-color: var(--accent-primary); }
         button.primary:hover { background-color: var(--accent-hover); }
-        
         button.success { background-color: var(--accent-success); color: white; font-weight: 600; padding: 10px 20px; border:none;}
         button.success:hover { background-color: #268a39; }
         button:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(100%); }
 
+        .toggle-btn { padding: 6px; min-width: 32px; justify-content: center; }
         #message-box { font-size: 12px; color: var(--text-muted); margin-left: auto; }
 
-        /* --- MAIN LAYOUT --- */
-        .main-content { display: flex; flex: 1; min-height: 0; position: relative; }
+        /* --- MAIN LAYOUT (3 Panes) --- */
+        .main-content { display: flex; flex: 1; min-height: 0; position: relative; width: 100%; }
 
-        /* LEFT: File Tree */
-        #file-tree-container {
-            width: 300px;
-            min-width: 200px;
+        /* 1. LEFT SIDEBAR (File Tree) */
+        #left-sidebar {
+            width: 250px;
+            min-width: 150px;
             background-color: var(--bg-sidebar);
-            overflow-y: auto;
-            user-select: none;
-            padding: 10px 0;
+            display: flex;
+            flex-direction: column;
             border-right: 1px solid var(--border-subtle);
+            transition: width 0.1s, min-width 0.1s;
         }
+        #left-sidebar.collapsed { width: 0 !important; min-width: 0 !important; border: none; overflow: hidden; }
 
-        /* Tree Nodes */
+        #file-tree-container { flex: 1; overflow-y: auto; overflow-x: hidden; padding-top: 10px; }
+
+        /* Tree Items */
         .file-tree, .file-tree ul { list-style: none; padding: 0; margin: 0; }
         .file-tree ul { padding-left: 10px; border-left: 1px solid #383838; margin-left: 12px; }
-        
+
         .tree-item {
-            display: flex;
-            align-items: center;
-            padding: 4px 8px 4px 4px;
-            cursor: pointer;
-            color: var(--text-main);
-            border-radius: 3px;
-            margin: 0 4px;
-            height: 28px;
+            display: flex; align-items: center; padding: 3px 0 3px 4px;
+            cursor: pointer; color: var(--text-main); border-radius: 3px;
+            margin: 0 4px; height: 28px;
         }
         .tree-item:hover { background-color: var(--bg-hover); color: var(--text-bright); }
-        
-        /* Highlight selected rows lightly */
+
+        /* Highlight background for selected items */
         .tree-item.added { background-color: rgba(45, 160, 66, 0.1); }
-        .tree-item.added .tree-label { color: var(--text-bright); font-weight: 500; }
+        .tree-item.added .tree-label { color: var(--accent-success); font-weight: 500; }
 
         .item-content { display: flex; align-items: center; flex: 1; overflow: hidden; }
-        .tree-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: 6px; }
-        
-        /* Tree Add Button */
+        .tree-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: 6px; font-size: 13px; }
+
+        /* THE PNG BUTTONS */
         .tree-add-btn {
-            background: transparent; border: 1px solid var(--border-subtle);
-            color: var(--text-muted); padding: 0; width: 22px; height: 22px;
-            border-radius: 4px; display: flex; align-items: center; justify-content: center;
-            transition: all 0.2s; margin-left: 5px; cursor: pointer; z-index: 2;
-        }
-
-        /* BUTTON STATE: Default (Plus) */
-        .tree-add-btn:hover { background-color: var(--bg-active); color: var(--text-bright); border-color: var(--text-muted); }
-
-        /* BUTTON STATE: Explicitly Selected (Green Check) */
-        .tree-add-btn.is-selected {
-            opacity: 1;
-            background-color: transparent; 
-            color: var(--accent-success);
-            border-color: var(--accent-success);
-        }
-
-        /* BUTTON STATE: Hover over Selected (Red Minus) */
-        .tree-add-btn.is-selected:hover {
-            background-color: var(--accent-danger);
-            border-color: var(--accent-danger);
-            color: white;
-        }
-
-        /* BUTTON STATE: Implicitly Selected (Parent locked) */
-        .tree-add-btn.is-implicit {
-            opacity: 0.5;
+            background: transparent;
+            border: 1px solid var(--border-subtle);
             color: var(--text-muted);
-            border-color: transparent;
-            cursor: not-allowed;
-            pointer-events: none; 
+            width: 22px; height: 22px;
+            display: flex; align-items: center; justify-content: center;
+            margin-left: auto; cursor: pointer; border-radius: 4px;
+            transition: all 0.2s;
         }
 
-        /* Folder Open State */
+        /* Default Hover (Plus) */
+        .tree-add-btn:hover { background-color: var(--bg-active); border-color: #666; }
+
+        /* Selected State (Check) */
+        .tree-add-btn.is-selected {
+            border-color: var(--accent-success);
+            background-color: rgba(45, 160, 66, 0.1);
+            opacity: 1;
+        }
+
+        /* Hover over Selected (Unselect) */
+        .tree-add-btn.is-selected:hover {
+            border-color: var(--accent-danger);
+            background-color: rgba(234, 76, 137, 0.2);
+        }
+
+        /* Implicitly Selected */
+        .tree-add-btn.is-implicit {
+            opacity: 0.5; cursor: not-allowed; border: none; pointer-events: none;
+        }
+
         .directory.open > .tree-item .icon-chevron { transform: rotate(90deg); }
         .directory > ul { display: none; }
         .directory.open > ul { display: block; }
 
-        /* RESIZER */
-        .resizer { width: 5px; background-color: var(--bg-app); cursor: col-resize; flex-shrink: 0; transition: background 0.2s; z-index: 10; }
-        .resizer:hover, .resizer.resizing { background-color: var(--accent-primary); }
-
-        /* RIGHT: Staging Area */
-        #staging-area {
-            flex-grow: 1;
+        /* 2. CENTER PANEL (Editor) */
+        #editor-area {
+            flex: 1;
             display: flex;
             flex-direction: column;
-            background-color: var(--bg-app);
-            min-width: 300px;
+            background-color: var(--bg-editor);
+            min-width: 200px;
+            overflow: hidden;
         }
 
-        .staging-header {
-            padding: 15px 20px;
+        .editor-header {
+            height: 35px;
+            background-color: var(--bg-app);
             border-bottom: 1px solid var(--border-subtle);
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            padding: 0 15px;
+            font-size: 13px;
+            color: var(--text-main);
         }
-        .staging-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); }
+        .editor-filename { font-weight: 500; display: flex; align-items: center; gap: 8px; }
 
-        .staging-list {
+        #code-viewer {
             flex: 1;
-            overflow-y: auto;
-            padding: 10px;
+            padding: 20px;
+            overflow: auto;
+            margin: 0;
+            font-family: var(--font-code);
+            font-size: 13px;
+            line-height: 1.5;
         }
 
-        /* Selected Cards */
-        .selected-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        /* Highlight.js Minimal Overrides */
+        pre code.hljs { display: block; overflow-x: auto; padding: 0; background: transparent; color: #d4d4d4; }
+        .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link { color: #569cd6; }
+        .hljs-string, .hljs-title, .hljs-name, .hljs-type, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-addition, .hljs-variable, .hljs-template-tag, .hljs-template-variable { color: #ce9178; }
+        .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: #6a9955; }
+
+        /* 3. RIGHT SIDEBAR (Staging) */
+        #right-sidebar {
+            width: 300px;
+            min-width: 200px;
             background-color: var(--bg-sidebar);
-            margin-bottom: 8px;
-            padding: 10px 15px;
-            border-radius: 6px;
-            border: 1px solid transparent;
-        }
-        .selected-item:hover { border-color: #555; }
-        
-        .selected-item-info { display: flex; flex-direction: column; overflow: hidden; }
-        .selected-item-name { font-weight: 500; color: var(--text-bright); display: flex; align-items: center; gap: 8px; }
-        .selected-item-path { font-size: 11px; color: var(--text-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
-        
-        .remove-btn {
-            background: transparent; border: none; color: var(--text-muted);
-            padding: 6px; border-radius: 4px; margin-left: 10px;
-        }
-        .remove-btn:hover { background-color: rgba(234, 76, 137, 0.15); color: var(--accent-danger); }
-
-        .staging-footer {
-            padding: 15px 20px;
-            border-top: 1px solid var(--border-subtle);
-            background-color: var(--bg-app);
             display: flex;
-            justify-content: flex-end;
-            gap: 10px;
+            flex-direction: column;
+            border-left: 1px solid var(--border-subtle);
+            transition: width 0.1s, min-width 0.1s;
+        }
+        #right-sidebar.collapsed { width: 0 !important; min-width: 0 !important; border: none; overflow: hidden; }
+
+        .staging-header { padding: 10px 15px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
+        .staging-list { flex: 1; overflow-y: auto; padding: 10px; }
+        .selected-item { display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-app); margin-bottom: 6px; padding: 8px 10px; border-radius: 4px; border: 1px solid transparent; }
+        .selected-item:hover { border-color: #555; }
+        .selected-item-info { display: flex; flex-direction: column; overflow: hidden; }
+        .selected-item-name { font-weight: 500; color: var(--text-bright); display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .selected-item-path { font-size: 11px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+        .remove-btn { background: transparent; border: none; color: var(--text-muted); padding: 4px; border-radius: 4px; cursor: pointer; }
+        .remove-btn:hover { color: var(--accent-danger); background-color: rgba(234, 76, 137, 0.15); }
+        .staging-footer { padding: 15px; border-top: 1px solid var(--border-subtle); }
+        .empty-state { text-align: center; color: var(--text-muted); margin-top: 50px; }
+
+        /* --- EDITOR LAYOUT --- */
+        #code-scroll-container {
+            flex: 1;
+            overflow: auto; /* The scrollbar lives here */
+            background-color: var(--bg-editor);
+            position: relative;
         }
 
-        /* Empty State */
-        .empty-state {
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            height: 100%; color: var(--text-muted); text-align: center;
+        #code-layout {
+            display: flex;
+            min-height: 100%;
         }
-        .empty-icon { width: 64px; height: 64px; margin-bottom: 15px; opacity: 0.2; }
+
+        /* Line Numbers Column */
+        #line-numbers {
+            flex-shrink: 0;
+            text-align: right;
+            padding: 20px 15px 20px 10px; /* Top/Bottom must match code padding */
+            background-color: var(--bg-editor); /* Or slightly lighter: #1e1e1e */
+            color: #6e7681; /* Dimmed color */
+            border-right: 1px solid var(--border-subtle);
+            user-select: none; /* Prevent selecting numbers when copying code */
+            font-family: var(--font-code);
+            font-size: 13px;
+            line-height: 1.5; /* CRITICAL: Must match code line-height */
+            white-space: pre; /* Respect \n characters */
+            min-width: 40px;
+        }
+
+        /* Code Column */
+        #code-wrapper {
+            margin: 0;
+            flex: 1;
+        }
+
+        #code-content {
+            display: block;
+            padding: 20px 20px 20px 15px !important; /* Top/Bottom must match numbers padding */
+            font-family: var(--font-code);
+            font-size: 13px;
+            line-height: 1.5; /* CRITICAL: Must match numbers line-height */
+            background: transparent;
+            overflow: visible; /* Let wrapper handle scroll */
+        }
+
+        /* RESIZERS */
+        .resizer { width: 4px; background-color: transparent; cursor: col-resize; z-index: 10; transition: background 0.2s; }
+        .resizer:hover, .resizer.resizing { background-color: var(--accent-primary); }
     </style>
 </head>
 <body>
-    <!-- Title Bar -->
-    <div id="title-bar">
-        <div id="app-title">Code Copier</div>
-        <div id="window-controls">
-            <button id="btn-minimize" class="control-btn">
-                <svg width="10" height="1" viewBox="0 0 10 1"><path d="M0 0h10v1H0z" fill="currentColor"/></svg>
-            </button>
-            <button id="btn-maximize" class="control-btn">
-                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1h8v8H1V1zm1 1v6h6V2H2z" fill="currentColor"/></svg>
-            </button>
-            <button id="btn-close" class="control-btn">
-                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.7 0L0 1.7 3.3 5 0 8.3 1.7 10 5 6.7 8.3 10 10 8.3 6.7 5 10 1.7 8.3 0 5 3.3 1.7 0z" fill="currentColor"/></svg>
+<!-- Title Bar -->
+<div id="title-bar">
+    <div id="app-title">Code Copier</div>
+    <div id="window-controls">
+        <button id="btn-minimize" class="control-btn"><svg width="10" height="1" viewBox="0 0 10 1"><path d="M0 0h10v1H0z" fill="currentColor"/></svg></button>
+        <button id="btn-maximize" class="control-btn"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1h8v8H1V1zm1 1v6h6V2H2z" fill="currentColor"/></svg></button>
+        <button id="btn-close" class="control-btn"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.7 0L0 1.7 3.3 5 0 8.3 1.7 10 5 6.7 8.3 10 10 8.3 6.7 5 10 1.7 8.3 0 5 3.3 1.7 0z" fill="currentColor"/></svg></button>
+    </div>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar">
+    <button id="toggle-left" class="toggle-btn" title="Toggle File Tree">
+        <svg class="svg-icon" viewBox="0 0 16 16"><path d="M2 1a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V2a1 1 0 00-1-1H2zm0 1h12v12H2V2z" fill="currentColor" fill-opacity="0.3"/><rect x="2" y="2" width="4" height="12" fill="currentColor"/></svg>
+    </button>
+
+    <div style="width: 1px; height: 20px; background: #454545; margin: 0 5px;"></div>
+
+    <button id="select-folder-btn" class="primary"><img src="./assets/folder.png" class="btn-icon"> Open Folder</button>
+    <button id="refresh-btn"><img src="./assets/refresh.png" class="btn-icon"> Refresh</button>
+    <button id="git-staged-btn"><img src="./assets/git.png" class="btn-icon"> Git Staged</button>
+    <button id="copy-diff-btn"><img src="./assets/commit-git.png" class="btn-icon"> Copy Changes</button>
+    <button id="copy-structure-btn"><img src="./assets/tree.png" class="btn-icon"> Copy Tree</button>
+
+    <div style="flex:1"></div> <!-- Spacer -->
+    <div id="message-box"></div>
+
+    <div style="width: 1px; height: 20px; background: #454545; margin: 0 5px;"></div>
+
+    <button id="toggle-right" class="toggle-btn" title="Toggle Staging Area">
+        <svg class="svg-icon" viewBox="0 0 16 16"><path d="M14 1a1 1 0 011 1v12a1 1 0 01-1 1H2a1 1 0 01-1-1V2a1 1 0 011-1h12zm0 1H2v12h12V2z" fill="currentColor" fill-opacity="0.3"/><rect x="10" y="2" width="4" height="12" fill="currentColor"/></svg>
+    </button>
+</div>
+
+<!-- Main Layout -->
+<div class="main-content">
+
+    <!-- LEFT SIDEBAR -->
+    <div id="left-sidebar">
+        <div style="padding: 10px 15px; color: var(--text-muted); font-size: 11px; font-weight:600; text-transform: uppercase;">EXPLORER</div>
+        <div id="file-tree-container">
+            <div style="padding: 30px 20px; text-align: center; color: var(--text-muted); font-style: italic;">Open a folder</div>
+        </div>
+    </div>
+
+    <!-- Resizer Left -->
+    <div class="resizer" id="resizer-left"></div>
+
+    <!-- CENTER EDITOR -->
+    <div id="editor-area">
+        <div class="editor-header">
+            <div class="editor-filename" id="current-file-name">
+                <span style="opacity: 0.5; font-style: italic;">No file selected</span>
+            </div>
+        </div>
+
+        <!-- CHANGED: Wrapper for scrolling -->
+        <div id="code-scroll-container">
+            <!-- CHANGED: Flex container for Side-by-Side layout -->
+            <div id="code-layout">
+                <div id="line-numbers"></div>
+                <pre id="code-wrapper"><code id="code-content" class="language-plaintext"></code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resizer Right -->
+    <div class="resizer" id="resizer-right"></div>
+
+    <!-- RIGHT SIDEBAR -->
+    <div id="right-sidebar">
+        <div class="staging-header">
+            <span id="staging-count">Selected Files (0)</span>
+            <button id="clear-all-btn" class="remove-btn" title="Clear All">✕</button>
+        </div>
+        <div id="staging-list" class="staging-list"></div>
+        <div class="staging-footer">
+            <button id="copy-all-btn" class="success" style="width:100%" disabled>
+                <img src="./assets/copy.png" class="btn-icon"> Copy to Clipboard
             </button>
         </div>
     </div>
 
-    <!-- Toolbar -->
-    <div class="toolbar">
-        <button id="select-folder-btn" class="primary">
-            <svg class="svg-icon" viewBox="0 0 16 16"><path d="M14.5 3H7.71l-.85-.85L6.51 2h-5l-.5.5v11l.5.5h13l.5-.5v-10l-.5-.5zM7 3h7v10H2V3h5z" fill="currentColor"/></svg>
-            Open Folder
-        </button>
-        <button id="refresh-btn">
-            <svg class="svg-icon" viewBox="0 0 16 16"><path d="M13.65 7.77a.58.58 0 00-.54.68 5.11 5.11 0 01-8.58 4.25l1.08-.29a.58.58 0 00.41-.71.57.57 0 00-.71-.4l-2.61.7a.58.58 0 00-.41.69l.7 2.62a.58.58 0 00.56.42.63.63 0 00 .16 0 .58.58 0 00 .4-.72l-.3-1.12A6.27 6.27 0 0014.2 8.32a.58.58 0 00-.55-.55z" fill="currentColor"/></svg>
-            Refresh
-        </button>
-        <button id="git-staged-btn" title="Add all files currently staged in Git">
-            <svg class="svg-icon" viewBox="0 0 16 16">
-                <path d="M1 2.5A2.5 2.5 0 0 1 3.5 0h8.75a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0V1.5H3.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h7.75a.75.75 0 0 1 0 1.5H3.5A2.5 2.5 0 0 1 1 13.5v-11Z" fill="currentColor"/>
-                <path d="M13 8a3 3 0 0 0-3 3v2a3 3 0 0 0 6 0v-2a3 3 0 0 0-3-3Zm-1.5 3a1.5 1.5 0 1 1 3 0v2a1.5 1.5 0 1 1-3 0v-2Z" fill="currentColor"/>
-            </svg>
-            Git Staged
-        </button>
-        <button id="copy-structure-btn">
-            <svg class="svg-icon" viewBox="0 0 16 16"><path d="M4 4h8v2H4zM4 8h5v2H4z" fill="currentColor"/><path d="M14 1H2a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V2a1 1 0 00-1-1zM2 2h12v12H2V2z" fill="currentColor"/></svg>
-            Copy Tree
-        </button>
-        <div id="message-box"></div>
-    </div>
-    
-    <div class="main-content">
-        <!-- LEFT: File Explorer -->
-        <div id="file-tree-container">
-            <div style="padding: 30px 20px; text-align: center; color: var(--text-muted); font-style: italic;">
-                Open a folder to start
-            </div>
-        </div>
-        
-        <div class="resizer"></div>
-        
-        <!-- RIGHT: Staging Area -->
-        <div id="staging-area">
-            <div class="staging-header">
-                <span id="staging-count" class="staging-title">Selected Files (0)</span>
-                <button id="clear-all-btn" class="remove-btn" title="Clear All" style="font-size: 11px; margin:0;">
-                    Clear List
-                </button>
-            </div>
-            
-            <div id="staging-list" class="staging-list">
-                <!-- Javascript populates this -->
-            </div>
-            
-            <div class="staging-footer">
-                <button id="copy-all-btn" class="success" disabled>
-                    <svg class="svg-icon" style="margin-right:5px" viewBox="0 0 16 16"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z" fill="currentColor"/></svg>
-                    Copy to Clipboard
-                </button>
-            </div>
-        </div>
-    </div>
+</div>
 </body>
 <script src="./renderer.js"></script>
 </html>

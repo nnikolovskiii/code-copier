@@ -6,7 +6,7 @@ const recentListEl = document.getElementById('recent-projects-list');
 
 // --- WORKSPACE ELEMENTS ---
 const selectFolderBtn = document.getElementById('select-folder-btn');
-const refreshBtn = document.getElementById('refresh-btn');
+// Removed: refreshBtn
 const gitStagedBtn = document.getElementById('git-staged-btn');
 const copyStructureBtn = document.getElementById('copy-structure-btn');
 const messageBox = document.getElementById('message-box');
@@ -369,7 +369,7 @@ async function refreshTreeLogic(isAuto = false) {
         if (!isAuto) { messageBox.textContent = 'Refreshed'; setTimeout(() => messageBox.textContent = '', 2000); }
     }
 }
-refreshBtn.addEventListener('click', () => refreshTreeLogic(false));
+// Removed manual refreshBtn click listener
 window.electronAPI.onFileSystemChange(() => refreshTreeLogic(true));
 
 gitStagedBtn.addEventListener('click', async () => {

@@ -1,13 +1,17 @@
-// --- ELEMENTS ---
+// --- VIEW ELEMENTS ---
+const viewWelcome = document.getElementById('view-welcome');
+const viewWorkspace = document.getElementById('view-workspace');
+const welcomeOpenBtn = document.getElementById('welcome-open-btn');
+const recentListEl = document.getElementById('recent-projects-list');
+
+// --- WORKSPACE ELEMENTS ---
 const selectFolderBtn = document.getElementById('select-folder-btn');
 const refreshBtn = document.getElementById('refresh-btn');
 const gitStagedBtn = document.getElementById('git-staged-btn');
 const copyStructureBtn = document.getElementById('copy-structure-btn');
 const messageBox = document.getElementById('message-box');
-const lineNumbersEl = document.getElementById('line-numbers'); // <--- ADD THIS
-const copyDiffBtn = document.getElementById('copy-diff-btn'); // <--- ADD THIS
-
-
+const lineNumbersEl = document.getElementById('line-numbers');
+const copyDiffBtn = document.getElementById('copy-diff-btn');
 
 // Layout Elements
 const leftSidebar = document.getElementById('left-sidebar');
@@ -48,17 +52,10 @@ const FILE_EXTENSIONS = {
     'rb': 'file_type_ruby.svg', 'sql': 'file_type_sql.svg', 'md': 'file_type_markdown.svg', 'yml': 'file_type_yaml.svg'
 };
 
-// --- UPDATED ICONS WITH YOUR PNGs ---
 const UI_ICONS = {
     chevron: '<svg class="svg-icon icon-chevron" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" fill="none"/></svg>',
-
-    // Default (Add)
     plus: '<img src="./assets/plus.png" class="btn-icon-state2" alt="+">',
-
-    // Selected (Check)
     check: '<img src="./assets/check (1).png" class="btn-icon-state" alt="v">',
-
-    // Remove (Unselect)
     remove: '<img src="./assets/unselect.png" class="btn-icon-state1" alt="-">'
 };
 
@@ -77,36 +74,93 @@ function getIconPath(node) {
     return ICON_BASE_PATH + 'default_file.svg';
 }
 
-copyDiffBtn.addEventListener('click', async () => {
-    if (!rootPath) {
-        messageBox.textContent = 'Open a folder first';
+// --- VIEW NAVIGATION ---
+function showWelcomeView() {
+    viewWorkspace.classList.add('hidden');
+    viewWelcome.classList.remove('hidden');
+    loadRecentProjects();
+}
+
+function showWorkspaceView() {
+    viewWelcome.classList.add('hidden');
+    viewWorkspace.classList.remove('hidden');
+}
+
+// --- WELCOME SCREEN LOGIC ---
+async function loadRecentProjects() {
+    const history = await window.electronAPI.getRecentProjects();
+
+    if (!history || history.length === 0) {
+        recentListEl.innerHTML = '<div style="color:var(--text-muted); font-style:italic;">No recent projects</div>';
         return;
     }
 
-    const originalText = copyDiffBtn.innerHTML;
-    copyDiffBtn.disabled = true;
-    messageBox.textContent = 'Generating diff...';
+    recentListEl.innerHTML = ''; // Clear
 
+    history.forEach(pathStr => {
+        const item = document.createElement('div');
+        item.className = 'recent-row';
+
+        // Extract folder name
+        const name = pathStr.split(/[/\\]/).pop();
+
+        item.innerHTML = `
+            <img src="./assets/folder.png" class="recent-row-icon"/>
+            <div class="recent-details">
+                <span class="recent-name">${name}</span>
+                <span class="recent-path">${pathStr}</span>
+            </div>
+        `;
+
+        item.addEventListener('click', async () => {
+            // We can reuse messageBox if we want, but it's hidden.
+            // Let's just transition.
+            try {
+                const fileTreeData = await window.electronAPI.openRecentProject(pathStr);
+                if (fileTreeData && !fileTreeData.error) {
+                    handleProjectLoaded(fileTreeData);
+                    showWorkspaceView();
+                } else {
+                    alert('Folder not found or access denied.');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        });
+
+        recentListEl.appendChild(item);
+    });
+}
+
+// Button on Welcome Screen
+welcomeOpenBtn.addEventListener('click', () => triggerOpenFolder());
+
+// --- CORE LOGIC ---
+async function triggerOpenFolder() {
     try {
-        const resultMsg = await window.electronAPI.copyGitDiff(rootPath);
-        messageBox.textContent = resultMsg;
-
-        // Visual feedback
-        if (resultMsg.includes('Success') || resultMsg.includes('Copied')) {
-            copyDiffBtn.innerHTML = `✅ Copied`;
+        const fileTreeData = await window.electronAPI.selectFolder();
+        if (fileTreeData) {
+            handleProjectLoaded(fileTreeData);
+            showWorkspaceView();
         }
-    } catch (error) {
-        console.error(error);
-        messageBox.textContent = 'Error generating diff';
+    } catch (err) {
+        console.error("Error opening folder:", err);
     }
+}
 
-    // Reset button after 2 seconds
-    setTimeout(() => {
-        copyDiffBtn.disabled = false;
-        copyDiffBtn.innerHTML = originalText;
-        messageBox.textContent = '';
-    }, 2000);
-});
+function handleProjectLoaded(fileTreeData) {
+    rootPath = fileTreeData.path;
+    selectedItems.clear();
+
+    // Clear Editor
+    currentFileNameEl.innerHTML = '<span style="opacity:0.5;font-style:italic">No file selected</span>';
+    codeContentEl.textContent = '';
+    lineNumbersEl.textContent = '';
+
+    refreshTreeLogic(true);
+    updateStagingView();
+    messageBox.textContent = '';
+}
 
 // --- LAYOUT & RESIZERS ---
 toggleLeftBtn.addEventListener('click', () => leftSidebar.classList.toggle('collapsed'));
@@ -151,7 +205,7 @@ async function openFileInViewer(node) {
     currentFileNameEl.innerHTML = `<img src="${iconPath}" class="tree-icon" /> ${node.name}`;
 
     codeContentEl.textContent = 'Loading...';
-    lineNumbersEl.textContent = ''; // Clear line numbers while loading
+    lineNumbersEl.textContent = '';
     codeContentEl.className = 'language-plaintext';
 
     try {
@@ -161,19 +215,11 @@ async function openFileInViewer(node) {
             codeContentEl.textContent = `Unable to display file.\n\nReason: ${result.error}`;
             lineNumbersEl.textContent = '';
         } else {
-            // 1. Set the highlighted code
             codeContentEl.innerHTML = result.html;
-
-            // 2. Set language class
             const langClass = result.language ? `language-${result.language}` : 'language-plaintext';
             codeContentEl.className = `hljs ${langClass}`;
 
-            // --- NEW: Generate Line Numbers ---
-            // Count newlines to determine line count
             const lineCount = result.content.split(/\r\n|\r|\n/).length;
-
-            // Create a string "1\n2\n3\n..."
-            // (Using a loop is faster than Array.from for massive files)
             let linesHtml = '';
             for (let i = 1; i <= lineCount; i++) {
                 linesHtml += i + '\n';
@@ -224,7 +270,7 @@ function updateStagingView() {
     });
 }
 
-// --- TREE RENDERING (UPDATED FOR PNG BUTTONS) ---
+// --- TREE RENDERING ---
 function createTree(nodes, expandedPaths = new Set(), ancestorSelected = false) {
     const ul = document.createElement('ul');
     ul.className = 'file-tree';
@@ -243,7 +289,6 @@ function createTree(nodes, expandedPaths = new Set(), ancestorSelected = false) 
         const isEffectivelySelected = isExplicitlySelected || ancestorSelected;
         if (isEffectivelySelected) itemDiv.classList.add('added');
 
-        // Content
         const contentDiv = document.createElement('div');
         contentDiv.className = 'item-content';
         const iconPath = getIconPath(node);
@@ -259,26 +304,19 @@ function createTree(nodes, expandedPaths = new Set(), ancestorSelected = false) 
 
         contentDiv.innerHTML = `${folderChevron}${iconHtml} <span class="tree-label">${node.name}</span>`;
 
-        // Add Button
         const addBtn = document.createElement('button');
         addBtn.className = 'tree-add-btn';
 
         if (ancestorSelected) {
-            // Parent selected: Show check (locked)
             addBtn.innerHTML = UI_ICONS.check;
             addBtn.classList.add('is-implicit');
         } else if (isExplicitlySelected) {
-            // Selected: Show check
             addBtn.innerHTML = UI_ICONS.check;
             addBtn.classList.add('is-selected');
-
-            // Hover logic: Swap Check with Unselect (Remove)
             addBtn.addEventListener('mouseenter', () => addBtn.innerHTML = UI_ICONS.remove);
             addBtn.addEventListener('mouseleave', () => addBtn.innerHTML = UI_ICONS.check);
-
             addBtn.addEventListener('click', (e) => { e.stopPropagation(); removeItem(node.path); });
         } else {
-            // Default: Show Plus
             addBtn.innerHTML = UI_ICONS.plus;
             addBtn.addEventListener('click', (e) => { e.stopPropagation(); addItem(node); refreshTreeLogic(true); });
         }
@@ -287,12 +325,10 @@ function createTree(nodes, expandedPaths = new Set(), ancestorSelected = false) 
         itemDiv.appendChild(addBtn);
         li.appendChild(itemDiv);
 
-        // Click Handler: Files = View, Folder = Expand
         itemDiv.addEventListener('click', (e) => {
             e.stopPropagation();
             if (node.type === 'directory') {
                 const isOpen = li.classList.toggle('open');
-                // Icon toggling logic
                 const img = itemDiv.querySelector('img.tree-icon');
                 if (img) {
                     if (img.src.includes('default_folder')) {
@@ -316,30 +352,10 @@ function createTree(nodes, expandedPaths = new Set(), ancestorSelected = false) 
     return ul;
 }
 
-// --- GENERAL ACTIONS ---
-selectFolderBtn.addEventListener('click', async () => {
-    messageBox.textContent = 'Loading...';
-    try {
-        const fileTreeData = await window.electronAPI.selectFolder();
-        if (fileTreeData) {
-            rootPath = fileTreeData.path;
-            selectedItems.clear();
-            refreshTreeLogic(true);
-            updateStagingView();
-            messageBox.textContent = '';
+// --- BUTTON HANDLERS (WORKSPACE) ---
+// Note: selectFolderBtn (in toolbar) also calls triggersOpenFolder
+selectFolderBtn.addEventListener('click', () => triggerOpenFolder());
 
-            // Clear Editor
-            currentFileNameEl.innerHTML = '<span style="opacity:0.5;font-style:italic">No file selected</span>';
-            codeContentEl.textContent = '';
-            document.getElementById('line-numbers').textContent = ''; // <--- Add this
-        } else {
-            messageBox.textContent = '';
-        }
-    } catch (err) {
-        console.error("Error opening folder:", err);
-        messageBox.textContent = "Error opening folder";
-    }
-});
 async function refreshTreeLogic(isAuto = false) {
     if (!rootPath) return;
     const expanded = new Set();
@@ -383,6 +399,28 @@ copyStructureBtn.addEventListener('click', async () => {
     setTimeout(() => messageBox.textContent = '', 3000);
 });
 
+copyDiffBtn.addEventListener('click', async () => {
+    if (!rootPath) { messageBox.textContent = 'Open a folder first'; return; }
+    const originalText = copyDiffBtn.innerHTML;
+    copyDiffBtn.disabled = true;
+    messageBox.textContent = 'Generating diff...';
+    try {
+        const resultMsg = await window.electronAPI.copyGitDiff(rootPath);
+        messageBox.textContent = resultMsg;
+        if (resultMsg.includes('Success') || resultMsg.includes('Copied')) {
+            copyDiffBtn.innerHTML = `✅ Copied`;
+        }
+    } catch (error) {
+        console.error(error);
+        messageBox.textContent = 'Error generating diff';
+    }
+    setTimeout(() => {
+        copyDiffBtn.disabled = false;
+        copyDiffBtn.innerHTML = originalText;
+        messageBox.textContent = '';
+    }, 2000);
+});
+
 clearAllBtn.addEventListener('click', () => {
     selectedItems.clear();
     updateStagingView();
@@ -403,7 +441,9 @@ copyAllBtn.addEventListener('click', async () => {
     if(result.includes('Success')) setTimeout(() => messageBox.textContent = '', 4000);
 });
 
-// Window Controls
 document.getElementById('btn-minimize').addEventListener('click', () => window.electronAPI.minimize());
 document.getElementById('btn-maximize').addEventListener('click', () => window.electronAPI.maximize());
 document.getElementById('btn-close').addEventListener('click', () => window.electronAPI.close());
+
+// --- INIT ---
+showWelcomeView();

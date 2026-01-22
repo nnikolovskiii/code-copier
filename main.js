@@ -8,10 +8,14 @@ const { exec } = require('node:child_process');
 // --- GLOBAL REFERENCES ---
 let mainWindow = null;
 let currentWatcher = null;
+let currentRootPath = null;
+let customIgnorePatterns = []; // Stores Regex patterns from .codecopierignore
 
-// [KEEP YOUR EXISTING IGNORED_EXTENSIONS AND IGNORED_DIRS ARRAYS HERE]
-// To save space in this answer, I am assuming you keep the long arrays
-// from your original file. They are crucial.
+// --- PERSISTENCE SETTINGS ---
+const HISTORY_FILE = path.join(app.getPath('userData'), 'recent-projects.json');
+const MAX_RECENT_PROJECTS = 10;
+
+// --- CONFIGURATION ---
 const IGNORED_EXTENSIONS = [
     '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff', '.heic',
     '.mp3', '.mp4', '.mov', '.avi', '.wav', '.flac', '.mkv', '.webm',
@@ -54,17 +58,107 @@ function debounce(func, wait) {
     };
 }
 
+// --- HISTORY HELPERS ---
+function loadRecentProjects() {
+    try {
+        if (!fs.existsSync(HISTORY_FILE)) return [];
+        return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
+    } catch (e) {
+        return [];
+    }
+}
+
+function addToRecentProjects(folderPath) {
+    let history = loadRecentProjects();
+    history = history.filter(p => p !== folderPath);
+    history.unshift(folderPath);
+    if (history.length > MAX_RECENT_PROJECTS) history.length = MAX_RECENT_PROJECTS;
+    try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2)); } catch (e) {}
+    return history;
+}
+
+// --- CUSTOM IGNORE LOGIC (.codecopierignore) ---
+
+function globToRegex(glob) {
+    // Basic implementation of glob-to-regex to avoid external dependencies
+    // 1. Escape special regex characters
+    let regexStr = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    // 2. Replace glob wildcards
+    regexStr = regexStr.replace(/\*/g, '.*').replace(/\?/g, '.');
+    // 3. Handle trailing slash (directories)
+    if (regexStr.endsWith('/')) {
+        regexStr = regexStr.slice(0, -1); // remove slash
+    }
+    // 4. Anchor it to match the full name or path part
+    return new RegExp(`^${regexStr}$`);
+}
+
+function loadCustomIgnores(rootPath) {
+    customIgnorePatterns = [];
+    const ignorePath = path.join(rootPath, '.codecopierignore');
+
+    if (fs.existsSync(ignorePath)) {
+        try {
+            const content = fs.readFileSync(ignorePath, 'utf-8');
+            const lines = content.split(/\r?\n/);
+
+            for (let line of lines) {
+                line = line.trim();
+                if (!line || line.startsWith('#')) continue;
+
+                // Convert glob-like string to RegExp
+                customIgnorePatterns.push(globToRegex(line));
+            }
+            console.log("Loaded custom ignores:", customIgnorePatterns.length, "patterns");
+        } catch (e) {
+            console.error("Error reading .codecopierignore:", e);
+        }
+    }
+}
+
+function shouldIgnore(name, isDir) {
+    // 1. Check Hardcoded
+    if (isDir && IGNORED_DIRS.includes(name)) return true;
+    if (!isDir && IGNORED_EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext))) return true;
+
+    // 2. Check Custom Patterns
+    if (customIgnorePatterns.length > 0) {
+        for (const regex of customIgnorePatterns) {
+            if (regex.test(name)) return true;
+        }
+    }
+    return false;
+}
+
 // --- FILE WATCHER ---
 function startWatching(targetPath) {
     if (currentWatcher) currentWatcher.close();
 
+    // Basic globs for chokidar
     const ignoreGlobs = [
         /(^|[\/\\])\../, // Ignore dotfiles
         ...IGNORED_DIRS.map(dir => `**/${dir}/**`)
     ];
 
+    // Add custom ignores to chokidar using a function matcher
+    const customMatcher = (pathStr) => {
+        const name = path.basename(pathStr);
+        for (const regex of customIgnorePatterns) {
+            if (regex.test(name)) return true;
+        }
+        return false;
+    };
+
     currentWatcher = chokidar.watch(targetPath, {
-        ignored: ignoreGlobs,
+        ignored: (pathStr, stats) => {
+            // Combine standard regex globs and our custom matcher
+            if (ignoreGlobs.some(glob => {
+                if (glob instanceof RegExp) return glob.test(pathStr);
+                return pathStr.includes(glob.replace(/\*\*/g, ''));
+            })) return true;
+
+            return customMatcher(pathStr);
+        },
         persistent: true,
         ignoreInitial: true,
         awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 }
@@ -90,10 +184,13 @@ function generateFileTree(directoryPath, includeAllExtensions = false) {
         const items = fs.readdirSync(directoryPath);
         const tree = [];
         for (const item of items) {
-            if (IGNORED_DIRS.includes(item)) continue;
             const fullPath = path.join(directoryPath, item);
             try {
                 const stat = fs.statSync(fullPath);
+
+                // Check if ignored
+                if (shouldIgnore(item, stat.isDirectory())) continue;
+
                 if (stat.isDirectory()) {
                     tree.push({
                         name: item,
@@ -102,7 +199,6 @@ function generateFileTree(directoryPath, includeAllExtensions = false) {
                         children: generateFileTree(fullPath, includeAllExtensions)
                     });
                 } else if (stat.isFile()) {
-                    if (!includeAllExtensions && IGNORED_EXTENSIONS.some(ext => item.toLowerCase().endsWith(ext))) continue;
                     tree.push({ name: item, path: fullPath, type: 'file' });
                 }
             } catch (e) { /* ignore access errors */ }
@@ -114,12 +210,12 @@ function generateFileTree(directoryPath, includeAllExtensions = false) {
 }
 
 function getPathContentAsString(targetPath, rootPath) {
-    // [KEEP EXISTING LOGIC FOR COPYING]
     const stat = fs.statSync(targetPath);
     const baseName = path.basename(targetPath);
 
+    if (shouldIgnore(baseName, stat.isDirectory())) return '';
+
     if (stat.isFile()) {
-        if (IGNORED_EXTENSIONS.some(ext => baseName.toLowerCase().endsWith(ext))) return '';
         try {
             const content = fs.readFileSync(targetPath, 'utf-8');
             const relativePath = path.relative(rootPath, targetPath).replace(/\\/g, '/');
@@ -129,7 +225,6 @@ function getPathContentAsString(targetPath, rootPath) {
         }
     }
     if (stat.isDirectory()) {
-        if (IGNORED_DIRS.includes(baseName)) return '';
         let combinedContent = [];
         const allItems = fs.readdirSync(targetPath);
         for (const item of allItems) {
@@ -141,35 +236,30 @@ function getPathContentAsString(targetPath, rootPath) {
     return '';
 }
 
-// --- NEW: READ FILE FOR VIEWER ---
 async function handleReadFile(event, filePath) {
     try {
-        const stat = fs.statSync(filePath);
-        if (stat.size > 2 * 1024 * 1024) return { error: 'File is too large to display.' };
-        if (IGNORED_EXTENSIONS.some(ext => filePath.toLowerCase().endsWith(ext))) {
-            return { error: 'Binary or ignored file type.' };
+        const baseName = path.basename(filePath);
+        if (shouldIgnore(baseName, false)) {
+            return { error: 'File is ignored by .codecopierignore or system filters.' };
         }
 
-        const content = fs.readFileSync(filePath, 'utf-8');
+        const stat = fs.statSync(filePath);
+        if (stat.size > 2 * 1024 * 1024) return { error: 'File is too large to display.' };
 
-        // --- NEW HIGHLIGHTING LOGIC ---
-        // Try to detect language based on content
+        const content = fs.readFileSync(filePath, 'utf-8');
         const highlighted = hljs.highlightAuto(content);
 
         return {
-            content: content, // Keep raw content just in case
-            html: highlighted.value, // The colored HTML
-            language: highlighted.language // The detected language
+            content: content,
+            html: highlighted.value,
+            language: highlighted.language
         };
-        // ------------------------------
-
     } catch (error) {
         return { error: error.message };
     }
 }
 
 function generateTreeStructureString(node, prefix = '', isLast = true, isRoot = true) {
-    // [KEEP EXISTING LOGIC]
     let result = '';
     if (isRoot) {
         result += `${node.name}/\n`;
@@ -197,7 +287,6 @@ function getGitStagedFiles(rootPath) {
     return new Promise((resolve) => {
         exec('git diff --name-only --cached', { cwd: rootPath }, (error, stdout) => {
             if (error) {
-                console.error("Git error or not a repo:", error.message);
                 resolve([]);
                 return;
             }
@@ -212,30 +301,45 @@ function getGitStagedFiles(rootPath) {
     });
 }
 
-function createMenu() {
-    // [KEEP EXISTING MENU]
-    const isMac = process.platform === 'darwin';
-    const template = [
-        ...(isMac ? [{ label: app.name, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
-        { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'delete' }, { type: 'separator' }, { role: 'selectAll' }] },
-        { label: 'View', submenu: [{ role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { label: 'Zoom In', accelerator: 'CommandOrControl+=', role: 'zoomIn' }, { label: 'Zoom Out', accelerator: 'CommandOrControl+-', role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
-        { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }, ...(isMac ? [{ type: 'separator' }, { role: 'front' }, { type: 'separator' }, { role: 'window' }] : [{ role: 'close' }])] }
-    ];
-    const menu = Menu.buildFromTemplate(template);
-    Menu.setApplicationMenu(menu);
+function getGitDiff(rootPath) {
+    return new Promise((resolve) => {
+        exec('git diff --cached', {
+            cwd: rootPath,
+            maxBuffer: 10 * 1024 * 1024
+        }, (error, stdout, stderr) => {
+            if (error) {
+                if (error.message.includes('maxBuffer')) {
+                    resolve({ error: "Staged content is too large (>10MB)." });
+                } else {
+                    resolve({ error: "Git error." });
+                }
+                return;
+            }
+            resolve({ content: stdout });
+        });
+    });
 }
 
 // --- IPC HANDLERS ---
 async function handleDirectoryOpen() {
     const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openDirectory'] });
     if (canceled || filePaths.length === 0) return null;
+
     const rootPath = filePaths[0];
+    currentRootPath = rootPath;
+
+    // Load custom ignores
+    loadCustomIgnores(rootPath);
+    addToRecentProjects(rootPath);
     startWatching(rootPath);
+
     return { name: path.basename(rootPath), path: rootPath, type: 'directory', children: generateFileTree(rootPath) };
 }
 
 async function handleRefreshTree(event, dirPath) {
     if (!dirPath) return null;
+    // Reload ignores on refresh just in case the file changed
+    loadCustomIgnores(dirPath);
     try { return { name: path.basename(dirPath), path: dirPath, type: 'directory', children: generateFileTree(dirPath) }; } catch (e) { return null; }
 }
 
@@ -270,38 +374,57 @@ async function handleCopyStructure(event, { rootPath }) {
     }
 }
 
-function getGitDiff(rootPath) {
-    return new Promise((resolve) => {
-        // 'git diff --cached' returns ONLY the changes that have been 'git add'-ed.
-        exec('git diff --cached', {
-            cwd: rootPath,
-            maxBuffer: 10 * 1024 * 1024 // <--- FIX: Increase limit to 10MB (default was 1MB)
-        }, (error, stdout, stderr) => {
-            if (error) {
-                console.error("[Git] Error:", error.message);
-
-                // Specific error handling
-                if (error.message.includes('maxBuffer')) {
-                    resolve({ error: "Staged content is too large (>10MB). Unstage large files like lock-files." });
-                } else {
-                    resolve({ error: "Git error. Check terminal for details." });
-                }
-                return;
-            }
-            resolve({ content: stdout });
-        });
-    });
-}
-
-
 async function handleGetGitStaged(event, rootPath) {
     return await getGitStagedFiles(rootPath);
+}
+
+async function handleCopyGitDiff(event, rootPath) {
+    const result = await getGitDiff(rootPath);
+    if (result.error) return `❌ Error: ${result.error}`;
+    if (!result.content || result.content.trim() === '') return "No staged changes.";
+    clipboard.writeText(result.content);
+    return "✅ Copied staged changes to clipboard";
+}
+
+async function handleGetRecent() {
+    return loadRecentProjects();
+}
+
+async function handleOpenSpecificPath(event, dirPath) {
+    if (!fs.existsSync(dirPath)) {
+        return { error: "Directory no longer exists" };
+    }
+    currentRootPath = dirPath;
+
+    // Load custom ignores
+    loadCustomIgnores(dirPath);
+    addToRecentProjects(dirPath);
+    startWatching(dirPath);
+
+    return {
+        name: path.basename(dirPath),
+        path: dirPath,
+        type: 'directory',
+        children: generateFileTree(dirPath)
+    };
+}
+
+function createMenu() {
+    const isMac = process.platform === 'darwin';
+    const template = [
+        ...(isMac ? [{ label: app.name, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
+        { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'delete' }, { type: 'separator' }, { role: 'selectAll' }] },
+        { label: 'View', submenu: [{ role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { label: 'Zoom In', accelerator: 'CommandOrControl+=', role: 'zoomIn' }, { label: 'Zoom Out', accelerator: 'CommandOrControl+-', role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
+        { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }, ...(isMac ? [{ type: 'separator' }, { role: 'front' }, { type: 'separator' }, { role: 'window' }] : [{ role: 'close' }])] }
+    ];
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
 }
 
 // --- APP LIFECYCLE ---
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1200, // Increased default width for 3 columns
+        width: 1200,
         height: 800,
         minWidth: 800,
         minHeight: 500,
@@ -312,28 +435,18 @@ function createWindow() {
     mainWindow.loadFile('index.html');
 }
 
-async function handleCopyGitDiff(event, rootPath) {
-    const result = await getGitDiff(rootPath);
-
-    if (result.error) return `❌ Error: ${result.error}`;
-
-    if (!result.content || result.content.trim() === '') {
-        // Specific message helping the user understand why it's empty
-        return "No staged changes. (Did you run 'git add'?)";
-    }
-
-    clipboard.writeText(result.content);
-    return "✅ Copied staged changes to clipboard";
-}
 app.whenReady().then(() => {
     createMenu();
     ipcMain.handle('dialog:openDirectory', handleDirectoryOpen);
     ipcMain.handle('file:refreshTree', handleRefreshTree);
-    ipcMain.handle('file:readFile', handleReadFile); // <--- New Handler
+    ipcMain.handle('file:readFile', handleReadFile);
     ipcMain.handle('context:copyMultiple', handleCopyMultiple);
     ipcMain.handle('context:copyStructure', handleCopyStructure);
     ipcMain.handle('git:getStaged', handleGetGitStaged);
-    ipcMain.handle('git:copyDiff', handleCopyGitDiff); // <--- ADD THIS
+    ipcMain.handle('git:copyDiff', handleCopyGitDiff);
+    ipcMain.handle('history:get', handleGetRecent);
+    ipcMain.handle('history:open', handleOpenSpecificPath);
+
     ipcMain.on('window:minimize', () => mainWindow.minimize());
     ipcMain.on('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize());
     ipcMain.on('window:close', () => mainWindow.close());

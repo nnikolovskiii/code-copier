@@ -13,18 +13,14 @@
             --bg-hover: #2a2d2e;
             --bg-active: #37373d;
             --bg-editor: #1e1e1e;
-
             --border-subtle: #454545;
-
             --text-main: #cccccc;
             --text-muted: #8b949e;
             --text-bright: #ffffff;
-
             --accent-primary: #007acc;
             --accent-hover: #0062a3;
             --accent-success: #2da042;
             --accent-danger: #ea4c89;
-
             --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             --font-code: "Consolas", "Courier New", monospace;
         }
@@ -55,54 +51,20 @@
         .btn-icon { width: 18px; height: 18px; display: inline-block; vertical-align: middle; margin-right: 6px; object-fit: contain; }
         .tree-icon { width: 20px; height: 20px; display: inline-block; vertical-align: middle; margin-right: 8px; object-fit: contain; }
         .icon-chevron { color: var(--text-muted); transition: transform 0.15s; width: 16px; height: 16px;}
-
-        /* New class for your PNG buttons */
         .btn-icon-state { width: 12px; height: 12px; object-fit: contain; display: block; }
         .btn-icon-state1 { width: 20px; height: 20px; object-fit: contain; display: block; }
         .btn-icon-state2 { width: 8px; height: 8px; object-fit: contain; display: block; }
 
-        pre code.hljs {
-            display: block;
-            overflow-x: auto;
-            padding: 0;
-            background: transparent;
-            color: #d4d4d4;
-        }
+        /* --- HIGHLIGHT JS --- */
+        pre code.hljs { display: block; overflow-x: auto; padding: 0; background: transparent; color: #d4d4d4; }
+        .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link { color: #569cd6; }
+        .hljs-function, .hljs-title, .hljs-attr, .hljs-built_in, .hljs-params { color: #dcdcaa; }
+        .hljs-string, .hljs-type, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-addition, .hljs-variable, .hljs-template-tag, .hljs-template-variable { color: #ce9178; }
+        .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: #6a9955; }
+        .hljs-number, .hljs-boolean { color: #b5cea8; }
+        .hljs-regexp { color: #d16969; }
+        .hljs-tag, .hljs-name { color: #569cd6; }
 
-        /* Keywords */
-        .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link {
-            color: #569cd6;
-        }
-
-        /* Functions & Classes */
-        .hljs-function, .hljs-title, .hljs-attr, .hljs-built_in, .hljs-params {
-            color: #dcdcaa;
-        }
-
-        /* Strings */
-        .hljs-string, .hljs-type, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-addition, .hljs-variable, .hljs-template-tag, .hljs-template-variable {
-            color: #ce9178;
-        }
-
-        /* Comments */
-        .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta {
-            color: #6a9955;
-        }
-
-        /* Numbers & Booleans */
-        .hljs-number, .hljs-boolean {
-            color: #b5cea8;
-        }
-
-        /* Control Flow / Regex */
-        .hljs-regexp {
-            color: #d16969;
-        }
-
-        /* HTML Tags */
-        .hljs-tag, .hljs-name {
-            color: #569cd6;
-        }
         /* --- TITLE BAR --- */
         #title-bar {
             height: 35px;
@@ -113,6 +75,7 @@
             -webkit-app-region: drag;
             user-select: none;
             border-bottom: 1px solid #111;
+            flex-shrink: 0;
         }
         #app-title { margin-left: 15px; font-weight: 500; font-size: 12px; color: var(--text-muted); letter-spacing: 0.5px; }
         #window-controls { display: flex; -webkit-app-region: no-drag; height: 100%; }
@@ -120,7 +83,101 @@
         .control-btn:hover { background-color: var(--bg-active); }
         #btn-close:hover { background-color: #c42b1c; color: white; }
 
-        /* --- TOOLBAR --- */
+        /* =========================================
+           VIEW SWITCHER LOGIC
+           ========================================= */
+        .view-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        /* Helper to hide views */
+        .hidden { display: none !important; }
+
+
+        /* =========================================
+           VIEW 1: WELCOME SCREEN (Recent Projects)
+           ========================================= */
+        #view-welcome {
+            background-color: var(--bg-app);
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .welcome-content {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .welcome-header h1 {
+            font-weight: 300;
+            font-size: 32px;
+            margin: 0 0 10px 0;
+            color: var(--text-bright);
+        }
+        .welcome-header p {
+            color: var(--text-muted);
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .welcome-actions {
+            display: flex;
+            gap: 15px;
+        }
+
+        /* Big Start Button */
+        .btn-big {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 15px;
+            background-color: var(--bg-sidebar);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            width: 150px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text-main);
+        }
+        .btn-big:hover { background-color: var(--bg-hover); border-color: var(--accent-primary); color: var(--text-bright); }
+        .btn-big img { width: 24px; height: 24px; margin-bottom: 10px; opacity: 0.8; }
+        .btn-big span { font-size: 13px; font-weight: 500; }
+
+        /* Recent List */
+        .recent-section h2 { font-size: 14px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 15px; font-weight: 600; letter-spacing: 0.5px;}
+        .recent-list { display: flex; flex-direction: column; gap: 5px; max-height: 400px; overflow-y: auto; }
+
+        .recent-row {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            background-color: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.1s;
+            text-decoration: none;
+        }
+        .recent-row:hover { background-color: var(--bg-active); }
+
+        .recent-row-icon { margin-right: 12px; opacity: 0.6; width: 18px; }
+        .recent-details { display: flex; flex-direction: column; overflow: hidden; }
+        .recent-name { font-size: 14px; font-weight: 500; color: var(--accent-primary); margin-bottom: 2px; }
+        .recent-path { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+
+
+        /* =========================================
+           VIEW 2: WORKSPACE (Toolbar + 3 Panes)
+           ========================================= */
+
+        /* Toolbar */
         .toolbar {
             padding: 8px 15px;
             border-bottom: 1px solid var(--border-subtle);
@@ -146,127 +203,47 @@
         .toggle-btn { padding: 6px; min-width: 32px; justify-content: center; }
         #message-box { font-size: 12px; color: var(--text-muted); margin-left: auto; }
 
-        /* --- MAIN LAYOUT (3 Panes) --- */
+        /* Main 3-Pane Layout */
         .main-content { display: flex; flex: 1; min-height: 0; position: relative; width: 100%; }
 
-        /* 1. LEFT SIDEBAR (File Tree) */
-        #left-sidebar {
-            width: 250px;
-            min-width: 150px;
-            background-color: var(--bg-sidebar);
-            display: flex;
-            flex-direction: column;
-            border-right: 1px solid var(--border-subtle);
-            transition: width 0.1s, min-width 0.1s;
-        }
+        /* Left Sidebar */
+        #left-sidebar { width: 250px; min-width: 150px; background-color: var(--bg-sidebar); display: flex; flex-direction: column; border-right: 1px solid var(--border-subtle); transition: width 0.1s, min-width 0.1s; }
         #left-sidebar.collapsed { width: 0 !important; min-width: 0 !important; border: none; overflow: hidden; }
-
         #file-tree-container { flex: 1; overflow-y: auto; overflow-x: hidden; padding-top: 10px; }
 
         /* Tree Items */
         .file-tree, .file-tree ul { list-style: none; padding: 0; margin: 0; }
         .file-tree ul { padding-left: 10px; border-left: 1px solid #383838; margin-left: 12px; }
-
-        .tree-item {
-            display: flex; align-items: center; padding: 3px 0 3px 4px;
-            cursor: pointer; color: var(--text-main); border-radius: 3px;
-            margin: 0 4px; height: 28px;
-        }
+        .tree-item { display: flex; align-items: center; padding: 3px 0 3px 4px; cursor: pointer; color: var(--text-main); border-radius: 3px; margin: 0 4px; height: 28px; }
         .tree-item:hover { background-color: var(--bg-hover); color: var(--text-bright); }
-
-        /* Highlight background for selected items */
         .tree-item.added { background-color: rgba(45, 160, 66, 0.1); }
         .tree-item.added .tree-label { color: var(--accent-success); font-weight: 500; }
-
         .item-content { display: flex; align-items: center; flex: 1; overflow: hidden; }
         .tree-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: 6px; font-size: 13px; }
 
-        /* THE PNG BUTTONS */
-        .tree-add-btn {
-            background: transparent;
-            border: 1px solid var(--border-subtle);
-            color: var(--text-muted);
-            width: 22px; height: 22px;
-            display: flex; align-items: center; justify-content: center;
-            margin-left: auto; cursor: pointer; border-radius: 4px;
-            transition: all 0.2s;
-        }
-
-        /* Default Hover (Plus) */
+        /* Tree Buttons */
+        .tree-add-btn { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-muted); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; margin-left: auto; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
         .tree-add-btn:hover { background-color: var(--bg-active); border-color: #666; }
-
-        /* Selected State (Check) */
-        .tree-add-btn.is-selected {
-            border-color: var(--accent-success);
-            background-color: rgba(45, 160, 66, 0.1);
-            opacity: 1;
-        }
-
-        /* Hover over Selected (Unselect) */
-        .tree-add-btn.is-selected:hover {
-            border-color: var(--accent-danger);
-            background-color: rgba(234, 76, 137, 0.2);
-        }
-
-        /* Implicitly Selected */
-        .tree-add-btn.is-implicit {
-            opacity: 0.5; cursor: not-allowed; border: none; pointer-events: none;
-        }
-
+        .tree-add-btn.is-selected { border-color: var(--accent-success); background-color: rgba(45, 160, 66, 0.1); opacity: 1; }
+        .tree-add-btn.is-selected:hover { border-color: var(--accent-danger); background-color: rgba(234, 76, 137, 0.2); }
+        .tree-add-btn.is-implicit { opacity: 0.5; cursor: not-allowed; border: none; pointer-events: none; }
         .directory.open > .tree-item .icon-chevron { transform: rotate(90deg); }
         .directory > ul { display: none; }
         .directory.open > ul { display: block; }
 
-        /* 2. CENTER PANEL (Editor) */
-        #editor-area {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background-color: var(--bg-editor);
-            min-width: 200px;
-            overflow: hidden;
-        }
-
-        .editor-header {
-            height: 35px;
-            background-color: var(--bg-app);
-            border-bottom: 1px solid var(--border-subtle);
-            display: flex;
-            align-items: center;
-            padding: 0 15px;
-            font-size: 13px;
-            color: var(--text-main);
-        }
+        /* Center Editor */
+        #editor-area { flex: 1; display: flex; flex-direction: column; background-color: var(--bg-editor); min-width: 200px; overflow: hidden; }
+        .editor-header { height: 35px; background-color: var(--bg-app); border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; padding: 0 15px; font-size: 13px; color: var(--text-main); }
         .editor-filename { font-weight: 500; display: flex; align-items: center; gap: 8px; }
+        #code-scroll-container { flex: 1; overflow: auto; background-color: var(--bg-editor); position: relative; }
+        #code-layout { display: flex; min-height: 100%; }
+        #line-numbers { flex-shrink: 0; text-align: right; padding: 20px 15px 20px 10px; background-color: var(--bg-editor); color: #6e7681; border-right: 1px solid var(--border-subtle); user-select: none; font-family: var(--font-code); font-size: 13px; line-height: 1.5; white-space: pre; min-width: 40px; }
+        #code-wrapper { margin: 0; flex: 1; }
+        #code-content { display: block; padding: 20px 20px 20px 15px !important; font-family: var(--font-code); font-size: 13px; line-height: 1.5; background: transparent; overflow: visible; }
 
-        #code-viewer {
-            flex: 1;
-            padding: 20px;
-            overflow: auto;
-            margin: 0;
-            font-family: var(--font-code);
-            font-size: 13px;
-            line-height: 1.5;
-        }
-
-        /* Highlight.js Minimal Overrides */
-        pre code.hljs { display: block; overflow-x: auto; padding: 0; background: transparent; color: #d4d4d4; }
-        .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link { color: #569cd6; }
-        .hljs-string, .hljs-title, .hljs-name, .hljs-type, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-addition, .hljs-variable, .hljs-template-tag, .hljs-template-variable { color: #ce9178; }
-        .hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: #6a9955; }
-
-        /* 3. RIGHT SIDEBAR (Staging) */
-        #right-sidebar {
-            width: 300px;
-            min-width: 200px;
-            background-color: var(--bg-sidebar);
-            display: flex;
-            flex-direction: column;
-            border-left: 1px solid var(--border-subtle);
-            transition: width 0.1s, min-width 0.1s;
-        }
+        /* Right Sidebar */
+        #right-sidebar { width: 300px; min-width: 200px; background-color: var(--bg-sidebar); display: flex; flex-direction: column; border-left: 1px solid var(--border-subtle); transition: width 0.1s, min-width 0.1s; }
         #right-sidebar.collapsed { width: 0 !important; min-width: 0 !important; border: none; overflow: hidden; }
-
         .staging-header { padding: 10px 15px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
         .staging-list { flex: 1; overflow-y: auto; padding: 10px; }
         .selected-item { display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-app); margin-bottom: 6px; padding: 8px 10px; border-radius: 4px; border: 1px solid transparent; }
@@ -279,58 +256,12 @@
         .staging-footer { padding: 15px; border-top: 1px solid var(--border-subtle); }
         .empty-state { text-align: center; color: var(--text-muted); margin-top: 50px; }
 
-        /* --- EDITOR LAYOUT --- */
-        #code-scroll-container {
-            flex: 1;
-            overflow: auto; /* The scrollbar lives here */
-            background-color: var(--bg-editor);
-            position: relative;
-        }
-
-        #code-layout {
-            display: flex;
-            min-height: 100%;
-        }
-
-        /* Line Numbers Column */
-        #line-numbers {
-            flex-shrink: 0;
-            text-align: right;
-            padding: 20px 15px 20px 10px; /* Top/Bottom must match code padding */
-            background-color: var(--bg-editor); /* Or slightly lighter: #1e1e1e */
-            color: #6e7681; /* Dimmed color */
-            border-right: 1px solid var(--border-subtle);
-            user-select: none; /* Prevent selecting numbers when copying code */
-            font-family: var(--font-code);
-            font-size: 13px;
-            line-height: 1.5; /* CRITICAL: Must match code line-height */
-            white-space: pre; /* Respect \n characters */
-            min-width: 40px;
-        }
-
-        /* Code Column */
-        #code-wrapper {
-            margin: 0;
-            flex: 1;
-        }
-
-        #code-content {
-            display: block;
-            padding: 20px 20px 20px 15px !important; /* Top/Bottom must match numbers padding */
-            font-family: var(--font-code);
-            font-size: 13px;
-            line-height: 1.5; /* CRITICAL: Must match numbers line-height */
-            background: transparent;
-            overflow: visible; /* Let wrapper handle scroll */
-        }
-
-        /* RESIZERS */
         .resizer { width: 4px; background-color: transparent; cursor: col-resize; z-index: 10; transition: background 0.2s; }
         .resizer:hover, .resizer.resizing { background-color: var(--accent-primary); }
     </style>
 </head>
 <body>
-<!-- Title Bar -->
+<!-- Title Bar (Always Visible) -->
 <div id="title-bar">
     <div id="app-title">Code Copier</div>
     <div id="window-controls">
@@ -340,79 +271,99 @@
     </div>
 </div>
 
-<!-- Toolbar -->
-<div class="toolbar">
-    <button id="toggle-left" class="toggle-btn" title="Toggle File Tree">
-        <svg class="svg-icon" viewBox="0 0 16 16"><path d="M2 1a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V2a1 1 0 00-1-1H2zm0 1h12v12H2V2z" fill="currentColor" fill-opacity="0.3"/><rect x="2" y="2" width="4" height="12" fill="currentColor"/></svg>
-    </button>
-
-    <div style="width: 1px; height: 20px; background: #454545; margin: 0 5px;"></div>
-
-    <button id="select-folder-btn" class="primary"><img src="./assets/folder.png" class="btn-icon"> Open Folder</button>
-    <button id="refresh-btn"><img src="./assets/refresh.png" class="btn-icon"> Refresh</button>
-    <button id="git-staged-btn"><img src="./assets/git.png" class="btn-icon"> Git Staged</button>
-    <button id="copy-diff-btn"><img src="./assets/commit-git.png" class="btn-icon"> Copy Changes</button>
-    <button id="copy-structure-btn"><img src="./assets/tree.png" class="btn-icon"> Copy Tree</button>
-
-    <div style="flex:1"></div> <!-- Spacer -->
-    <div id="message-box"></div>
-
-    <div style="width: 1px; height: 20px; background: #454545; margin: 0 5px;"></div>
-
-    <button id="toggle-right" class="toggle-btn" title="Toggle Staging Area">
-        <svg class="svg-icon" viewBox="0 0 16 16"><path d="M14 1a1 1 0 011 1v12a1 1 0 01-1 1H2a1 1 0 01-1-1V2a1 1 0 011-1h12zm0 1H2v12h12V2z" fill="currentColor" fill-opacity="0.3"/><rect x="10" y="2" width="4" height="12" fill="currentColor"/></svg>
-    </button>
-</div>
-
-<!-- Main Layout -->
-<div class="main-content">
-
-    <!-- LEFT SIDEBAR -->
-    <div id="left-sidebar">
-        <div style="padding: 10px 15px; color: var(--text-muted); font-size: 11px; font-weight:600; text-transform: uppercase;">EXPLORER</div>
-        <div id="file-tree-container">
-            <div style="padding: 30px 20px; text-align: center; color: var(--text-muted); font-style: italic;">Open a folder</div>
-        </div>
-    </div>
-
-    <!-- Resizer Left -->
-    <div class="resizer" id="resizer-left"></div>
-
-    <!-- CENTER EDITOR -->
-    <div id="editor-area">
-        <div class="editor-header">
-            <div class="editor-filename" id="current-file-name">
-                <span style="opacity: 0.5; font-style: italic;">No file selected</span>
-            </div>
+<!-- VIEW 1: WELCOME / RECENT PROJECTS -->
+<div id="view-welcome" class="view-container">
+    <div class="welcome-content">
+        <div class="welcome-header">
+            <h1>Code Copier</h1>
+            <p>Select a folder to start copying code quickly.</p>
         </div>
 
-        <!-- CHANGED: Wrapper for scrolling -->
-        <div id="code-scroll-container">
-            <!-- CHANGED: Flex container for Side-by-Side layout -->
-            <div id="code-layout">
-                <div id="line-numbers"></div>
-                <pre id="code-wrapper"><code id="code-content" class="language-plaintext"></code></pre>
-            </div>
-        </div>
-    </div>
-
-    <!-- Resizer Right -->
-    <div class="resizer" id="resizer-right"></div>
-
-    <!-- RIGHT SIDEBAR -->
-    <div id="right-sidebar">
-        <div class="staging-header">
-            <span id="staging-count">Selected Files (0)</span>
-            <button id="clear-all-btn" class="remove-btn" title="Clear All">✕</button>
-        </div>
-        <div id="staging-list" class="staging-list"></div>
-        <div class="staging-footer">
-            <button id="copy-all-btn" class="success" style="width:100%" disabled>
-                <img src="./assets/copy.png" class="btn-icon"> Copy to Clipboard
+        <!-- Start Section -->
+        <div class="welcome-actions">
+            <button id="welcome-open-btn" class="btn-big">
+                <img src="./assets/folder.png" />
+                <span>Open Folder...</span>
             </button>
         </div>
+
+        <!-- Recent Projects Section -->
+        <div class="recent-section">
+            <h2>Recent Projects</h2>
+            <div id="recent-projects-list" class="recent-list">
+                <!-- Populated by JS -->
+                <div style="color:var(--text-muted); font-style:italic;">No recent projects</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- VIEW 2: WORKSPACE (Initially Hidden) -->
+<div id="view-workspace" class="view-container hidden">
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <button id="toggle-left" class="toggle-btn" title="Toggle File Tree">
+            <svg class="svg-icon" viewBox="0 0 16 16"><path d="M2 1a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V2a1 1 0 00-1-1H2zm0 1h12v12H2V2z" fill="currentColor" fill-opacity="0.3"/><rect x="2" y="2" width="4" height="12" fill="currentColor"/></svg>
+        </button>
+        <div style="width: 1px; height: 20px; background: #454545; margin: 0 5px;"></div>
+
+        <button id="select-folder-btn" class="primary"><img src="./assets/folder.png" class="btn-icon"> Open Folder</button>
+        <button id="git-staged-btn"><img src="./assets/git.png" class="btn-icon"> Git Staged</button>
+        <button id="copy-diff-btn"><img src="./assets/commit-git.png" class="btn-icon"> Copy Changes</button>
+        <button id="copy-structure-btn"><img src="./assets/tree.png" class="btn-icon"> Copy Tree</button>
+
+        <div style="flex:1"></div>
+        <div id="message-box"></div>
+        <div style="width: 1px; height: 20px; background: #454545; margin: 0 5px;"></div>
+
+        <button id="toggle-right" class="toggle-btn" title="Toggle Staging Area">
+            <svg class="svg-icon" viewBox="0 0 16 16"><path d="M14 1a1 1 0 011 1v12a1 1 0 01-1 1H2a1 1 0 01-1-1V2a1 1 0 011-1h12zm0 1H2v12h12V2z" fill="currentColor" fill-opacity="0.3"/><rect x="10" y="2" width="4" height="12" fill="currentColor"/></svg>
+        </button>
     </div>
 
+    <!-- 3-Pane Content -->
+    <div class="main-content">
+        <!-- LEFT SIDEBAR -->
+        <div id="left-sidebar">
+            <div style="padding: 10px 15px; color: var(--text-muted); font-size: 11px; font-weight:600; text-transform: uppercase;">EXPLORER</div>
+            <div id="file-tree-container">
+                <!-- Tree goes here -->
+            </div>
+        </div>
+
+        <div class="resizer" id="resizer-left"></div>
+
+        <!-- CENTER EDITOR -->
+        <div id="editor-area">
+            <div class="editor-header">
+                <div class="editor-filename" id="current-file-name">
+                    <span style="opacity: 0.5; font-style: italic;">No file selected</span>
+                </div>
+            </div>
+            <div id="code-scroll-container">
+                <div id="code-layout">
+                    <div id="line-numbers"></div>
+                    <pre id="code-wrapper"><code id="code-content" class="language-plaintext"></code></pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="resizer" id="resizer-right"></div>
+
+        <!-- RIGHT SIDEBAR -->
+        <div id="right-sidebar">
+            <div class="staging-header">
+                <span id="staging-count">Selected Files (0)</span>
+                <button id="clear-all-btn" class="remove-btn" title="Clear All">✕</button>
+            </div>
+            <div id="staging-list" class="staging-list"></div>
+            <div class="staging-footer">
+                <button id="copy-all-btn" class="success" style="width:100%" disabled>
+                    <img src="./assets/copy.png" class="btn-icon"> Copy to Clipboard
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 </body>
 <script src="./renderer.js"></script>

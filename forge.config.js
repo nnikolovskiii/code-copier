@@ -4,49 +4,42 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
-    icon: './assets/icons/icon',
-    name: 'Code Copier',        // Display Name (Title Bars, Start Menu)
-    executableName: 'code-copier', // <--- CRITICAL FIX: The actual filename (no spaces)
+    icon: './build/icon'
   },
   rebuildConfig: {},
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        // Windows Config
-        setupExe: 'CodeCopierSetup.exe',
-        setupIcon: './assets/icons/icon.ico',
-      },
+        name: 'code_copier',
+        setupIcon: './build/icon.ico'
+      }
     },
     {
       name: '@electron-forge/maker-zip',
-      platforms: ['darwin'],
+      platforms: ['darwin']
     },
     {
       name: '@electron-forge/maker-deb',
       config: {
         options: {
-          bin: 'code-copier', // Tells linux to link this binary
-          name: 'code-copier', // Package name
-          productName: 'Code Copier'
+          icon: './build/icon.png'
         }
-      },
+      }
     },
     {
       name: '@electron-forge/maker-rpm',
       config: {
         options: {
-          bin: 'code-copier',
-          name: 'code-copier',
-          productName: 'Code Copier'
+          icon: './build/icon.png'
         }
-      },
-    },
+      }
+    }
   ],
   plugins: [
     {
       name: '@electron-forge/plugin-auto-unpack-natives',
-      config: {},
+      config: {}
     },
     new FusesPlugin({
       version: FuseVersion.V1,
@@ -55,7 +48,7 @@ module.exports = {
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
-      [FuseV1Options.OnlyLoadAppFromAsar]: true,
-    }),
-  ],
+      [FuseV1Options.OnlyLoadAppFromAsar]: true
+    })
+  ]
 };

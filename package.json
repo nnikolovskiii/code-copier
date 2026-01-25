@@ -56,7 +56,7 @@
         {
           "name": "@electron-forge/plugin-fuses",
           "config": {
-            "version": "V1",
+            "version": 1,
             "fuses": {
               "runAsNode": false,
               "enableCookieEncryption": true,

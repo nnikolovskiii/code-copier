@@ -9,45 +9,56 @@ const { exec } = require('node:child_process');
 let mainWindow = null;
 let currentWatcher = null;
 let currentRootPath = null;
-let customIgnorePatterns = []; // Stores { pattern: RegExp, isNegation: boolean, matchPath: boolean }
+let customIgnorePatterns = [];
 
 // --- PERSISTENCE SETTINGS ---
 const HISTORY_FILE = path.join(app.getPath('userData'), 'recent-projects.json');
 const MAX_RECENT_PROJECTS = 10;
 
 // --- CONFIGURATION ---
-const IGNORED_EXTENSIONS = [
+// Binary/media extensions that should never be copied
+const BINARY_EXTENSIONS = [
     '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff', '.heic',
     '.mp3', '.mp4', '.mov', '.avi', '.wav', '.flac', '.mkv', '.webm',
-    '.obj', '.fbx', '.blend', '.woff', '.woff2', '.ttf', '.eot', '.otf',
+    '.woff', '.woff2', '.ttf', '.eot', '.otf',
     '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.xz', '.jar', '.war', '.ear',
-    '.apk', '.aab', '.ipa', '.exe', '.dll', '.so', '.dylib', '.bin',
-    '.o', '.a', '.class', '.pyc', '.pyo', '.pyd', '.gem',
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.rtf',
-    '.psd', '.ai', '.eps', '.indd', '.sketch', '.fig',
-    '.db', '.sqlite', '.sqlite3', '.mdb', '.accde', '.frm', '.ibd',
-    '.map', '.css.map', '.js.map',
-    '.pem', '.crt', '.key', '.p12', '.pfx', '.keystore', '.jks',
-    '.DS_Store', 'Thumbs.db', 'desktop.ini'
+    '.exe', '.dll', '.so', '.dylib', '.bin', '.dmg', '.iso',
+    '.o', '.a', '.obj', '.class', '.pyc', '.pyo', '.pyd',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.psd', '.ai', '.sketch', '.fig',
+    '.sqlite', '.sqlite3', '.db', '.mdb',
+    '.lock' // lock files are usually not useful
 ];
 
-// Full file names that should be ignored (not extensions)
-const IGNORED_FILES = [
-    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
-    'Gemfile.lock', 'composer.lock', 'Cargo.lock'
+// Specific filenames to ignore
+const IGNORED_FILENAMES = [
+    'package-lock.json',
+    'yarn.lock',
+    'pnpm-lock.yaml',
+    'poetry.lock',
+    'Gemfile.lock',
+    'Cargo.lock',
+    'composer.lock',
+    '.DS_Store',
+    'Thumbs.db',
+    'desktop.ini'
 ];
 
+// Directories to ignore
 const IGNORED_DIRS = [
-    '.git', '.svn', '.hg', '.DS_Store', 'Trash', 'tmp', 'temp',
-    '.idea', '.vscode', '.vs', '.settings', '.project', '.classpath', 'nbproject',
-    'node_modules', 'bower_components', 'jspm_packages', '.npm', '.yarn',
-    '__pycache__', 'venv', '.venv', 'env', '.env', 'pip-wheel-metadata', '.pytest_cache', '.mypy_cache',
-    'dist', 'build', 'out', 'target', 'bin', 'obj', 'pkg', '_build', 'deps',
-    '.next', '.nuxt', '.output', '.docusaurus',
-    '.gradle', 'gradle', '.m2', 'Pods', 'DerivedData', '.xcworkspace',
-    'vendor', '.bundle', '.terraform', '.serverless', '.aws-sam', '.vercel', '.netlify',
-    'coverage', '.nyc_output', 'test-results', 'logs', 'log',
-    '.langgraph_api', '.ipynb_checkpoints'
+    '.git', '.svn', '.hg',
+    'node_modules', 'bower_components', 'jspm_packages',
+    '__pycache__', 'venv', '.venv', 'env', '.env.local',
+    '.idea', '.vscode', '.vs',
+    'dist', 'build', 'out', 'target', 'bin', 'obj',
+    '.next', '.nuxt', '.output',
+    '.pytest_cache', '.mypy_cache', '.tox',
+    'coverage', '.nyc_output',
+    '.gradle', '.m2',
+    '.terraform',
+    'logs', 'log',
+    '.cache',
+    '.tmp', 'tmp', 'temp'
 ];
 
 // --- HELPER: DEBOUNCE ---
@@ -78,61 +89,38 @@ function addToRecentProjects(folderPath) {
     history = history.filter(p => p !== folderPath);
     history.unshift(folderPath);
     if (history.length > MAX_RECENT_PROJECTS) history.length = MAX_RECENT_PROJECTS;
-    try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2)); } catch (e) {}
+    try {
+        fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+    } catch (e) {
+        console.error('Failed to save history:', e);
+    }
     return history;
 }
 
-// --- IMPROVED CUSTOM IGNORE LOGIC (.codecopierignore) ---
-
-/**
- * Converts a gitignore-style glob pattern to a RegExp
- * Supports: *, **, ?, negation (!), directory markers (/)
- */
+// --- CUSTOM IGNORE LOGIC (.codecopierignore) ---
 function globToRegex(glob) {
     let isNegation = false;
-    let matchPath = false;
 
-    // Handle negation
     if (glob.startsWith('!')) {
         isNegation = true;
         glob = glob.slice(1);
     }
 
-    // If pattern contains a slash (not at end), it should match against the path
-    if (glob.includes('/') && !glob.endsWith('/')) {
-        matchPath = true;
-    }
-
-    // Remove leading slash (it means "from root")
     if (glob.startsWith('/')) {
         glob = glob.slice(1);
     }
 
-    // Remove trailing slash (directory indicator)
     if (glob.endsWith('/')) {
         glob = glob.slice(0, -1);
     }
 
-    // Escape special regex characters except * and ?
     let regexStr = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-
-    // Handle ** (match any number of directories)
     regexStr = regexStr.replace(/\*\*/g, '{{GLOBSTAR}}');
-
-    // Handle * (match anything except /)
     regexStr = regexStr.replace(/\*/g, '[^/]*');
-
-    // Handle ? (match single character except /)
     regexStr = regexStr.replace(/\?/g, '[^/]');
-
-    // Replace globstar placeholder
     regexStr = regexStr.replace(/\{\{GLOBSTAR\}\}/g, '.*');
 
-    // For patterns without path separators, match against just the name
-    // For patterns with path separators, match against the relative path
-    const regex = new RegExp(`(^|/)${regexStr}$`);
-
-    return { regex, isNegation, matchPath };
+    return { regex: new RegExp(`(^|/)${regexStr}($|/)`), isNegation };
 }
 
 function loadCustomIgnores(rootPath) {
@@ -146,89 +134,72 @@ function loadCustomIgnores(rootPath) {
 
             for (let line of lines) {
                 line = line.trim();
-                // Skip empty lines and comments
                 if (!line || line.startsWith('#')) continue;
-
-                const patternInfo = globToRegex(line);
-                customIgnorePatterns.push(patternInfo);
+                customIgnorePatterns.push(globToRegex(line));
             }
-            console.log("Loaded custom ignores:", customIgnorePatterns.length, "patterns");
+            console.log("Loaded .codecopierignore:", customIgnorePatterns.length, "patterns");
         } catch (e) {
             console.error("Error reading .codecopierignore:", e);
         }
     }
 }
 
-/**
- * Check if a file/directory should be ignored
- * @param {string} name - Base name of the file/directory
- * @param {boolean} isDir - Whether it's a directory
- * @param {string} relativePath - Relative path from root (optional, for custom patterns)
- */
-function shouldIgnore(name, isDir, relativePath = null) {
+// --- IGNORE CHECK FUNCTIONS ---
+function shouldIgnoreDir(name) {
+    return IGNORED_DIRS.includes(name);
+}
+
+function shouldIgnoreFile(name) {
     const nameLower = name.toLowerCase();
 
-    // 1. Check hardcoded directories
-    if (isDir && IGNORED_DIRS.includes(name)) return true;
-
-    // 2. Check hardcoded full file names
-    if (!isDir && IGNORED_FILES.includes(name)) return true;
-
-    // 3. Check hardcoded extensions
-    if (!isDir) {
-        for (const ext of IGNORED_EXTENSIONS) {
-            if (nameLower.endsWith(ext.toLowerCase())) return true;
-        }
+    // Check specific filenames
+    if (IGNORED_FILENAMES.includes(name)) {
+        return true;
     }
 
-    // 4. Check custom patterns from .codecopierignore
-    if (customIgnorePatterns.length > 0) {
-        // Normalize the relative path for matching
-        const normalizedPath = relativePath
-            ? relativePath.replace(/\\/g, '/')
-            : name;
-
-        let ignored = false;
-
-        for (const { regex, isNegation, matchPath } of customIgnorePatterns) {
-            // Decide what to test against
-            const testString = matchPath ? normalizedPath : name;
-
-            if (regex.test(testString)) {
-                if (isNegation) {
-                    ignored = false; // Negation pattern matched, un-ignore
-                } else {
-                    ignored = true; // Ignore pattern matched
-                }
-            }
+    // Check binary extensions
+    for (const ext of BINARY_EXTENSIONS) {
+        if (nameLower.endsWith(ext)) {
+            return true;
         }
-
-        if (ignored) return true;
     }
 
     return false;
 }
 
+function shouldIgnoreCustom(relativePath) {
+    if (customIgnorePatterns.length === 0) return false;
+
+    const normalizedPath = relativePath.replace(/\\/g, '/');
+    const name = path.basename(relativePath);
+
+    let ignored = false;
+
+    for (const { regex, isNegation } of customIgnorePatterns) {
+        if (regex.test(normalizedPath) || regex.test(name)) {
+            ignored = !isNegation;
+        }
+    }
+
+    return ignored;
+}
+
 // --- FILE WATCHER ---
 function startWatching(targetPath) {
-    if (currentWatcher) currentWatcher.close();
+    if (currentWatcher) {
+        currentWatcher.close();
+    }
 
     currentWatcher = chokidar.watch(targetPath, {
-        ignored: (pathStr) => {
-            const name = path.basename(pathStr);
-            const relativePath = path.relative(targetPath, pathStr);
-
-            // Always ignore .git
-            if (pathStr.includes('/.git/') || pathStr.includes('\\.git\\')) return true;
-            if (name === '.git') return true;
-
-            // Check our ignore rules
-            try {
-                const stat = fs.statSync(pathStr);
-                return shouldIgnore(name, stat.isDirectory(), relativePath);
-            } catch {
-                return false;
+        ignored: (filePath) => {
+            const name = path.basename(filePath);
+            if (name === '.git' || filePath.includes('/.git/') || filePath.includes('\\.git\\')) {
+                return true;
             }
+            if (IGNORED_DIRS.includes(name)) {
+                return true;
+            }
+            return false;
         },
         persistent: true,
         ignoreInitial: true,
@@ -249,7 +220,7 @@ function startWatching(targetPath) {
         .on('unlinkDir', notifyRenderer);
 }
 
-// --- FILE OPERATIONS ---
+// --- FILE TREE GENERATION (for display) ---
 function generateFileTree(directoryPath, rootPath = null) {
     if (!rootPath) rootPath = directoryPath;
 
@@ -263,12 +234,12 @@ function generateFileTree(directoryPath, rootPath = null) {
 
             try {
                 const stat = fs.statSync(fullPath);
-                const isDir = stat.isDirectory();
 
-                // Check if ignored (with relative path for custom patterns)
-                if (shouldIgnore(item, isDir, relativePath)) continue;
+                if (stat.isDirectory()) {
+                    // Skip ignored directories
+                    if (shouldIgnoreDir(item)) continue;
+                    if (shouldIgnoreCustom(relativePath)) continue;
 
-                if (isDir) {
                     tree.push({
                         name: item,
                         path: fullPath,
@@ -276,13 +247,22 @@ function generateFileTree(directoryPath, rootPath = null) {
                         children: generateFileTree(fullPath, rootPath)
                     });
                 } else if (stat.isFile()) {
-                    tree.push({ name: item, path: fullPath, type: 'file' });
+                    // Skip ignored files
+                    if (shouldIgnoreFile(item)) continue;
+                    if (shouldIgnoreCustom(relativePath)) continue;
+
+                    tree.push({
+                        name: item,
+                        path: fullPath,
+                        type: 'file'
+                    });
                 }
             } catch (e) {
-                // Ignore access errors for individual files
-                console.log(`Skipping ${fullPath}: ${e.message}`);
+                // Skip files we can't access
+                console.log(`Cannot access ${fullPath}: ${e.message}`);
             }
         }
+
         return tree;
     } catch (e) {
         console.error(`Error reading directory ${directoryPath}: ${e.message}`);
@@ -290,116 +270,104 @@ function generateFileTree(directoryPath, rootPath = null) {
     }
 }
 
-/**
- * Get content as string for copying - with proper error handling
- */
-function getPathContentAsString(targetPath, rootPath) {
+// --- FILE READING FOR COPY ---
+function readSingleFile(filePath, rootPath) {
+    const relativePath = path.relative(rootPath, filePath).replace(/\\/g, '/');
+
     try {
-        const stat = fs.statSync(targetPath);
-        const baseName = path.basename(targetPath);
-        const relativePath = path.relative(rootPath, targetPath);
-        const isDir = stat.isDirectory();
+        const stat = fs.statSync(filePath);
 
-        // Check if ignored (but only for recursive calls, not for explicitly selected items)
-        // Note: We don't skip explicitly selected items, but we do skip their ignored children
-        if (shouldIgnore(baseName, isDir, relativePath)) {
-            return '';
+        // Skip large files (> 1MB)
+        if (stat.size > 1024 * 1024) {
+            console.log(`[SKIP] ${relativePath} - too large (${(stat.size / 1024 / 1024).toFixed(2)}MB)`);
+            return null;
         }
 
-        if (stat.isFile()) {
-            try {
-                // Check if file is likely binary
-                const ext = path.extname(baseName).toLowerCase();
-                const binaryExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
-                    '.mp3', '.mp4', '.mov', '.avi', '.wav', '.zip', '.tar',
-                    '.gz', '.rar', '.7z', '.exe', '.dll', '.so', '.pdf'];
-                if (binaryExts.includes(ext)) {
-                    return `--- Binary file skipped: ${relativePath.replace(/\\/g, '/')} ---\n\n`;
-                }
+        const content = fs.readFileSync(filePath, 'utf-8');
 
-                const content = fs.readFileSync(targetPath, 'utf-8');
-                const relPath = relativePath.replace(/\\/g, '/');
-                return `--- File: ${relPath} ---\n${content}\n\n`;
-            } catch (e) {
-                const relPath = relativePath.replace(/\\/g, '/');
-                return `--- Could not read file: ${relPath} (${e.message}) ---\n\n`;
-            }
+        // --- NEW CODE STARTS HERE ---
+        // Check for Null Bytes (\0). If found, it's likely binary or will break the clipboard.
+        if (content.includes('\0')) {
+            console.log(`[SKIP-BINARY] ${relativePath} - Detected null bytes (binary file)`);
+            return null;
         }
+        // --- NEW CODE ENDS HERE ---
 
-        if (isDir) {
-            let combinedContent = [];
-            try {
-                const allItems = fs.readdirSync(targetPath);
-                for (const item of allItems) {
-                    const fullPath = path.join(targetPath, item);
-                    const childContent = getPathContentAsString(fullPath, rootPath);
-                    if (childContent) {
-                        combinedContent.push(childContent);
-                    }
-                }
-            } catch (e) {
-                console.log(`Could not read directory ${targetPath}: ${e.message}`);
-            }
-            return combinedContent.join('');
-        }
+        console.log(`[READ] ${relativePath} (${content.length} chars)`);
 
-        return '';
+        return {
+            path: relativePath,
+            content: content
+        };
     } catch (e) {
-        // File/directory doesn't exist or can't be accessed
-        console.log(`Skipping ${targetPath}: ${e.message}`);
-        return '';
+        console.log(`[ERROR] ${relativePath}: ${e.message}`);
+        return null;
     }
 }
 
-/**
- * Explicit content getter - doesn't apply ignore rules to the top-level item
- * Use this for items the user explicitly selected
- */
-function getExplicitPathContent(targetPath, rootPath) {
+function collectFilesFromDirectory(dirPath, rootPath, files = []) {
+    console.log(`[DIR] Scanning: ${path.relative(rootPath, dirPath) || '.'}`);
+
     try {
-        const stat = fs.statSync(targetPath);
-        const relativePath = path.relative(rootPath, targetPath);
+        const items = fs.readdirSync(dirPath);
 
-        if (stat.isFile()) {
-            try {
-                const content = fs.readFileSync(targetPath, 'utf-8');
-                const relPath = relativePath.replace(/\\/g, '/');
-                return `--- File: ${relPath} ---\n${content}\n\n`;
-            } catch (e) {
-                const relPath = relativePath.replace(/\\/g, '/');
-                return `--- Could not read file: ${relPath} (${e.message}) ---\n\n`;
-            }
-        }
+        for (const item of items) {
+            const fullPath = path.join(dirPath, item);
+            const relativePath = path.relative(rootPath, fullPath);
 
-        if (stat.isDirectory()) {
-            // For directories, recursively get content (children will be filtered)
-            let combinedContent = [];
             try {
-                const allItems = fs.readdirSync(targetPath);
-                for (const item of allItems) {
-                    const fullPath = path.join(targetPath, item);
-                    const childContent = getPathContentAsString(fullPath, rootPath);
-                    if (childContent) {
-                        combinedContent.push(childContent);
+                const stat = fs.statSync(fullPath);
+
+                if (stat.isDirectory()) {
+                    // Check if directory should be ignored
+                    if (shouldIgnoreDir(item)) {
+                        console.log(`[SKIP-DIR] ${relativePath}`);
+                        continue;
+                    }
+                    if (shouldIgnoreCustom(relativePath)) {
+                        console.log(`[SKIP-CUSTOM] ${relativePath}`);
+                        continue;
+                    }
+
+                    // Recurse into directory
+                    collectFilesFromDirectory(fullPath, rootPath, files);
+
+                } else if (stat.isFile()) {
+                    // Check if file should be ignored
+                    if (shouldIgnoreFile(item)) {
+                        console.log(`[SKIP-FILE] ${relativePath}`);
+                        continue;
+                    }
+                    if (shouldIgnoreCustom(relativePath)) {
+                        console.log(`[SKIP-CUSTOM] ${relativePath}`);
+                        continue;
+                    }
+
+                    // Read the file
+                    const fileData = readSingleFile(fullPath, rootPath);
+                    if (fileData) {
+                        files.push(fileData);
                     }
                 }
             } catch (e) {
-                console.log(`Could not read directory ${targetPath}: ${e.message}`);
+                console.log(`[ERROR] Cannot access ${relativePath}: ${e.message}`);
             }
-            return combinedContent.join('');
         }
-
-        return '';
     } catch (e) {
-        console.log(`Cannot access ${targetPath}: ${e.message}`);
-        return '';
+        console.log(`[ERROR] Cannot read directory ${dirPath}: ${e.message}`);
     }
+
+    return files;
 }
 
+// --- FILE VIEWER ---
 async function handleReadFile(event, filePath) {
     try {
         const stat = fs.statSync(filePath);
-        if (stat.size > 2 * 1024 * 1024) return { error: 'File is too large to display (>2MB).' };
+
+        if (stat.size > 2 * 1024 * 1024) {
+            return { error: 'File is too large to display (>2MB).' };
+        }
 
         const content = fs.readFileSync(filePath, 'utf-8');
         const highlighted = hljs.highlightAuto(content);
@@ -414,43 +382,60 @@ async function handleReadFile(event, filePath) {
     }
 }
 
+// --- TREE STRUCTURE STRING ---
 function generateTreeStructureString(node, prefix = '', isLast = true, isRoot = true) {
     let result = '';
+
     if (isRoot) {
         result += `${node.name}/\n`;
     } else {
         const connector = isLast ? '└── ' : '├── ';
         result += `${prefix}${connector}${node.name}${node.type === 'directory' ? '/' : ''}\n`;
     }
+
     if (node.type === 'directory' && node.children && node.children.length > 0) {
         let childPrefix = prefix;
-        if (!isRoot) childPrefix += isLast ? '    ' : '│   ';
-        const sortedChildren = node.children.sort((a, b) => {
+        if (!isRoot) {
+            childPrefix += isLast ? '    ' : '│   ';
+        }
+
+        const sortedChildren = [...node.children].sort((a, b) => {
             if (a.type === b.type) return a.name.localeCompare(b.name);
             return a.type === 'directory' ? -1 : 1;
         });
+
         sortedChildren.forEach((child, index) => {
             const isChildLast = index === sortedChildren.length - 1;
             result += generateTreeStructureString(child, childPrefix, isChildLast, false);
         });
     }
+
     return result;
 }
 
-// --- GIT HELPER ---
+// --- GIT HELPERS ---
 function getGitStagedFiles(rootPath) {
     return new Promise((resolve) => {
         exec('git diff --name-only --cached', { cwd: rootPath }, (error, stdout) => {
             if (error) {
+                console.log('Git staged files error:', error.message);
                 resolve([]);
                 return;
             }
-            const files = stdout.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+
+            const files = stdout
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+
             const absolutePaths = [];
             for (const file of files) {
                 const fullPath = path.join(rootPath, file);
-                if (fs.existsSync(fullPath)) absolutePaths.push(fullPath);
+                if (fs.existsSync(fullPath)) {
+                    absolutePaths.push(fullPath);
+                }
             }
+
             resolve(absolutePaths);
         });
     });
@@ -461,7 +446,7 @@ function getGitDiff(rootPath) {
         exec('git diff --cached', {
             cwd: rootPath,
             maxBuffer: 10 * 1024 * 1024
-        }, (error, stdout, stderr) => {
+        }, (error, stdout) => {
             if (error) {
                 if (error.message.includes('maxBuffer')) {
                     resolve({ error: "Staged content is too large (>10MB)." });
@@ -476,14 +461,20 @@ function getGitDiff(rootPath) {
 }
 
 // --- IPC HANDLERS ---
+
 async function handleDirectoryOpen() {
-    const { canceled, filePaths } = await dialog.showOpenDialog({ properties: ['openDirectory'] });
-    if (canceled || filePaths.length === 0) return null;
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+        properties: ['openDirectory']
+    });
+
+    if (canceled || filePaths.length === 0) {
+        return null;
+    }
 
     const rootPath = filePaths[0];
     currentRootPath = rootPath;
 
-    // Load custom ignores FIRST before generating tree
+    // Load custom ignores
     loadCustomIgnores(rootPath);
     addToRecentProjects(rootPath);
     startWatching(rootPath);
@@ -498,8 +489,10 @@ async function handleDirectoryOpen() {
 
 async function handleRefreshTree(event, dirPath) {
     if (!dirPath) return null;
-    // Reload ignores on refresh in case the file changed
+
+    // Reload custom ignores
     loadCustomIgnores(dirPath);
+
     try {
         return {
             name: path.basename(dirPath),
@@ -508,48 +501,79 @@ async function handleRefreshTree(event, dirPath) {
             children: generateFileTree(dirPath, dirPath)
         };
     } catch (e) {
+        console.error('Refresh error:', e);
         return null;
     }
 }
 
 async function handleCopyMultiple(event, { paths, rootPath }) {
-    try {
-        let finalContent = '';
-        let successCount = 0;
-        let errorCount = 0;
+    console.log('\n' + '='.repeat(50));
+    console.log('COPY OPERATION STARTED');
+    console.log('='.repeat(50));
+    console.log('Root path:', rootPath);
+    console.log('Items selected:', paths.length);
+    paths.forEach(p => console.log('  -', path.relative(rootPath, p) || '.'));
+    console.log('-'.repeat(50));
 
-        for (const itemPath of paths) {
-            // Use explicit getter (doesn't filter the selected item itself)
-            const content = getExplicitPathContent(itemPath, rootPath);
-            if (content && content.trim()) {
-                finalContent += content;
-                successCount++;
-            } else {
-                errorCount++;
+    const allFiles = [];
+
+    for (const itemPath of paths) {
+        const relativePath = path.relative(rootPath, itemPath);
+        console.log(`\nProcessing: ${relativePath || 'ROOT'}`);
+
+        try {
+            const stat = fs.statSync(itemPath);
+
+            if (stat.isFile()) {
+                // Directly selected file - don't apply ignore rules
+                const fileData = readSingleFile(itemPath, rootPath);
+                if (fileData) {
+                    allFiles.push(fileData);
+                }
+            } else if (stat.isDirectory()) {
+                // Directory - collect all non-ignored files
+                collectFilesFromDirectory(itemPath, rootPath, allFiles);
             }
+        } catch (e) {
+            console.log(`[ERROR] Cannot access ${itemPath}: ${e.message}`);
         }
-
-        if (!finalContent.trim()) {
-            return "No text content found to copy.";
-        }
-
-        clipboard.writeText(finalContent);
-
-        let msg = `✅ Success! Copied ${successCount} item(s) (${finalContent.length.toLocaleString()} chars).`;
-        if (errorCount > 0) {
-            msg += ` ${errorCount} item(s) had no content.`;
-        }
-        return msg;
-    } catch (error) {
-        console.error('Copy error:', error);
-        return `❌ Error: ${error.message}`;
     }
+
+    console.log('\n' + '='.repeat(50));
+    console.log('COPY OPERATION COMPLETE');
+    console.log('='.repeat(50));
+    console.log(`Total files collected: ${allFiles.length}`);
+
+    if (allFiles.length === 0) {
+        return "No files found to copy.";
+    }
+
+    // Format the content
+    let finalContent = '';
+    for (const file of allFiles) {
+        finalContent += `--- File: ${file.path} ---\n`;
+        finalContent += file.content;
+        finalContent += '\n\n';
+    }
+
+    // Copy to clipboard
+    clipboard.writeText(finalContent);
+
+    const charCount = finalContent.length.toLocaleString();
+    console.log(`Copied ${allFiles.length} files (${charCount} chars) to clipboard`);
+
+    return `✅ Copied ${allFiles.length} files (${charCount} chars)`;
 }
 
 async function handleCopyStructure(event, { rootPath }) {
     try {
         const fileTree = generateFileTree(rootPath, rootPath);
-        const rootNode = { name: path.basename(rootPath), path: rootPath, type: 'directory', children: fileTree };
+        const rootNode = {
+            name: path.basename(rootPath),
+            path: rootPath,
+            type: 'directory',
+            children: fileTree
+        };
         const treeString = generateTreeStructureString(rootNode);
         clipboard.writeText(treeString);
         return `✅ Copied directory structure.`;
@@ -564,8 +588,15 @@ async function handleGetGitStaged(event, rootPath) {
 
 async function handleCopyGitDiff(event, rootPath) {
     const result = await getGitDiff(rootPath);
-    if (result.error) return `❌ Error: ${result.error}`;
-    if (!result.content || result.content.trim() === '') return "No staged changes.";
+
+    if (result.error) {
+        return `❌ Error: ${result.error}`;
+    }
+
+    if (!result.content || result.content.trim() === '') {
+        return "No staged changes found.";
+    }
+
     clipboard.writeText(result.content);
     return "✅ Copied staged changes to clipboard";
 }
@@ -578,6 +609,7 @@ async function handleOpenSpecificPath(event, dirPath) {
     if (!fs.existsSync(dirPath)) {
         return { error: "Directory no longer exists" };
     }
+
     currentRootPath = dirPath;
 
     // Load custom ignores
@@ -593,19 +625,75 @@ async function handleOpenSpecificPath(event, dirPath) {
     };
 }
 
+// --- MENU ---
 function createMenu() {
     const isMac = process.platform === 'darwin';
+
     const template = [
-        ...(isMac ? [{ label: app.name, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }] }] : []),
-        { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'delete' }, { type: 'separator' }, { role: 'selectAll' }] },
-        { label: 'View', submenu: [{ role: 'reload' }, { role: 'forceReload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { label: 'Zoom In', accelerator: 'CommandOrControl+=', role: 'zoomIn' }, { label: 'Zoom Out', accelerator: 'CommandOrControl+-', role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
-        { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }, ...(isMac ? [{ type: 'separator' }, { role: 'front' }, { type: 'separator' }, { role: 'window' }] : [{ role: 'close' }])] }
+        ...(isMac ? [{
+            label: app.name,
+            submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { role: 'quit' }
+            ]
+        }] : []),
+        {
+            label: 'Edit',
+            submenu: [
+                { role: 'undo' },
+                { role: 'redo' },
+                { type: 'separator' },
+                { role: 'cut' },
+                { role: 'copy' },
+                { role: 'paste' },
+                { role: 'delete' },
+                { type: 'separator' },
+                { role: 'selectAll' }
+            ]
+        },
+        {
+            label: 'View',
+            submenu: [
+                { role: 'reload' },
+                { role: 'forceReload' },
+                { role: 'toggleDevTools' },
+                { type: 'separator' },
+                { role: 'resetZoom' },
+                { label: 'Zoom In', accelerator: 'CommandOrControl+=', role: 'zoomIn' },
+                { label: 'Zoom Out', accelerator: 'CommandOrControl+-', role: 'zoomOut' },
+                { type: 'separator' },
+                { role: 'togglefullscreen' }
+            ]
+        },
+        {
+            label: 'Window',
+            submenu: [
+                { role: 'minimize' },
+                { role: 'zoom' },
+                ...(isMac ? [
+                    { type: 'separator' },
+                    { role: 'front' },
+                    { type: 'separator' },
+                    { role: 'window' }
+                ] : [
+                    { role: 'close' }
+                ])
+            ]
+        }
     ];
+
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
 }
 
-// --- APP LIFECYCLE ---
+// --- WINDOW CREATION ---
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1200,
@@ -614,13 +702,19 @@ function createWindow() {
         minHeight: 500,
         frame: false,
         titleBarStyle: 'hidden',
-        webPreferences: { preload: path.join(__dirname, 'preload.js') }
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js')
+        }
     });
+
     mainWindow.loadFile('index.html');
 }
 
+// --- APP LIFECYCLE ---
 app.whenReady().then(() => {
     createMenu();
+
+    // IPC Handlers
     ipcMain.handle('dialog:openDirectory', handleDirectoryOpen);
     ipcMain.handle('file:refreshTree', handleRefreshTree);
     ipcMain.handle('file:readFile', handleReadFile);
@@ -631,12 +725,28 @@ app.whenReady().then(() => {
     ipcMain.handle('history:get', handleGetRecent);
     ipcMain.handle('history:open', handleOpenSpecificPath);
 
+    // Window controls
     ipcMain.on('window:minimize', () => mainWindow.minimize());
-    ipcMain.on('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize());
+    ipcMain.on('window:maximize', () => {
+        if (mainWindow.isMaximized()) {
+            mainWindow.unmaximize();
+        } else {
+            mainWindow.maximize();
+        }
+    });
     ipcMain.on('window:close', () => mainWindow.close());
 
     createWindow();
-    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+    app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+            createWindow();
+        }
+    });
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});

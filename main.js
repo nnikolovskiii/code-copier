@@ -9,7 +9,7 @@ const { exec } = require('node:child_process');
 let mainWindow = null;
 let currentWatcher = null;
 let currentRootPath = null;
-let customIgnorePatterns = []; // Stores Regex patterns from .codecopierignore
+let customIgnorePatterns = []; // Stores { pattern: RegExp, isNegation: boolean, matchPath: boolean }
 
 // --- PERSISTENCE SETTINGS ---
 const HISTORY_FILE = path.join(app.getPath('userData'), 'recent-projects.json');
@@ -22,14 +22,19 @@ const IGNORED_EXTENSIONS = [
     '.obj', '.fbx', '.blend', '.woff', '.woff2', '.ttf', '.eot', '.otf',
     '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2', '.xz', '.jar', '.war', '.ear',
     '.apk', '.aab', '.ipa', '.exe', '.dll', '.so', '.dylib', '.bin',
-    '.o', '.a', '.obj', '.class', '.pyc', '.pyo', '.pyd', '.gem',
+    '.o', '.a', '.class', '.pyc', '.pyo', '.pyd', '.gem',
     '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.rtf',
     '.psd', '.ai', '.eps', '.indd', '.sketch', '.fig',
     '.db', '.sqlite', '.sqlite3', '.mdb', '.accde', '.frm', '.ibd',
     '.map', '.css.map', '.js.map',
     '.pem', '.crt', '.key', '.p12', '.pfx', '.keystore', '.jks',
-    '.lock', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Gemfile.lock', 'composer.lock', 'Cargo.lock',
     '.DS_Store', 'Thumbs.db', 'desktop.ini'
+];
+
+// Full file names that should be ignored (not extensions)
+const IGNORED_FILES = [
+    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'Gemfile.lock', 'composer.lock', 'Cargo.lock'
 ];
 
 const IGNORED_DIRS = [
@@ -38,10 +43,10 @@ const IGNORED_DIRS = [
     'node_modules', 'bower_components', 'jspm_packages', '.npm', '.yarn',
     '__pycache__', 'venv', '.venv', 'env', '.env', 'pip-wheel-metadata', '.pytest_cache', '.mypy_cache',
     'dist', 'build', 'out', 'target', 'bin', 'obj', 'pkg', '_build', 'deps',
-    '.next', '.nuxt', '.output', '.docusaurus', 'public', 'static',
+    '.next', '.nuxt', '.output', '.docusaurus',
     '.gradle', 'gradle', '.m2', 'Pods', 'DerivedData', '.xcworkspace',
     'vendor', '.bundle', '.terraform', '.serverless', '.aws-sam', '.vercel', '.netlify',
-    'coverage', '.nyc_output', 'test-results', 'logs', 'log', 'npm-debug.log*', 'yarn-debug.log*', 'yarn-error.log*',
+    'coverage', '.nyc_output', 'test-results', 'logs', 'log',
     '.langgraph_api', '.ipynb_checkpoints'
 ];
 
@@ -77,20 +82,57 @@ function addToRecentProjects(folderPath) {
     return history;
 }
 
-// --- CUSTOM IGNORE LOGIC (.codecopierignore) ---
+// --- IMPROVED CUSTOM IGNORE LOGIC (.codecopierignore) ---
 
+/**
+ * Converts a gitignore-style glob pattern to a RegExp
+ * Supports: *, **, ?, negation (!), directory markers (/)
+ */
 function globToRegex(glob) {
-    // Basic implementation of glob-to-regex to avoid external dependencies
-    // 1. Escape special regex characters
-    let regexStr = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    // 2. Replace glob wildcards
-    regexStr = regexStr.replace(/\*/g, '.*').replace(/\?/g, '.');
-    // 3. Handle trailing slash (directories)
-    if (regexStr.endsWith('/')) {
-        regexStr = regexStr.slice(0, -1); // remove slash
+    let isNegation = false;
+    let matchPath = false;
+
+    // Handle negation
+    if (glob.startsWith('!')) {
+        isNegation = true;
+        glob = glob.slice(1);
     }
-    // 4. Anchor it to match the full name or path part
-    return new RegExp(`^${regexStr}$`);
+
+    // If pattern contains a slash (not at end), it should match against the path
+    if (glob.includes('/') && !glob.endsWith('/')) {
+        matchPath = true;
+    }
+
+    // Remove leading slash (it means "from root")
+    if (glob.startsWith('/')) {
+        glob = glob.slice(1);
+    }
+
+    // Remove trailing slash (directory indicator)
+    if (glob.endsWith('/')) {
+        glob = glob.slice(0, -1);
+    }
+
+    // Escape special regex characters except * and ?
+    let regexStr = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+
+    // Handle ** (match any number of directories)
+    regexStr = regexStr.replace(/\*\*/g, '{{GLOBSTAR}}');
+
+    // Handle * (match anything except /)
+    regexStr = regexStr.replace(/\*/g, '[^/]*');
+
+    // Handle ? (match single character except /)
+    regexStr = regexStr.replace(/\?/g, '[^/]');
+
+    // Replace globstar placeholder
+    regexStr = regexStr.replace(/\{\{GLOBSTAR\}\}/g, '.*');
+
+    // For patterns without path separators, match against just the name
+    // For patterns with path separators, match against the relative path
+    const regex = new RegExp(`(^|/)${regexStr}$`);
+
+    return { regex, isNegation, matchPath };
 }
 
 function loadCustomIgnores(rootPath) {
@@ -104,10 +146,11 @@ function loadCustomIgnores(rootPath) {
 
             for (let line of lines) {
                 line = line.trim();
+                // Skip empty lines and comments
                 if (!line || line.startsWith('#')) continue;
 
-                // Convert glob-like string to RegExp
-                customIgnorePatterns.push(globToRegex(line));
+                const patternInfo = globToRegex(line);
+                customIgnorePatterns.push(patternInfo);
             }
             console.log("Loaded custom ignores:", customIgnorePatterns.length, "patterns");
         } catch (e) {
@@ -116,17 +159,53 @@ function loadCustomIgnores(rootPath) {
     }
 }
 
-function shouldIgnore(name, isDir) {
-    // 1. Check Hardcoded
-    if (isDir && IGNORED_DIRS.includes(name)) return true;
-    if (!isDir && IGNORED_EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext))) return true;
+/**
+ * Check if a file/directory should be ignored
+ * @param {string} name - Base name of the file/directory
+ * @param {boolean} isDir - Whether it's a directory
+ * @param {string} relativePath - Relative path from root (optional, for custom patterns)
+ */
+function shouldIgnore(name, isDir, relativePath = null) {
+    const nameLower = name.toLowerCase();
 
-    // 2. Check Custom Patterns
-    if (customIgnorePatterns.length > 0) {
-        for (const regex of customIgnorePatterns) {
-            if (regex.test(name)) return true;
+    // 1. Check hardcoded directories
+    if (isDir && IGNORED_DIRS.includes(name)) return true;
+
+    // 2. Check hardcoded full file names
+    if (!isDir && IGNORED_FILES.includes(name)) return true;
+
+    // 3. Check hardcoded extensions
+    if (!isDir) {
+        for (const ext of IGNORED_EXTENSIONS) {
+            if (nameLower.endsWith(ext.toLowerCase())) return true;
         }
     }
+
+    // 4. Check custom patterns from .codecopierignore
+    if (customIgnorePatterns.length > 0) {
+        // Normalize the relative path for matching
+        const normalizedPath = relativePath
+            ? relativePath.replace(/\\/g, '/')
+            : name;
+
+        let ignored = false;
+
+        for (const { regex, isNegation, matchPath } of customIgnorePatterns) {
+            // Decide what to test against
+            const testString = matchPath ? normalizedPath : name;
+
+            if (regex.test(testString)) {
+                if (isNegation) {
+                    ignored = false; // Negation pattern matched, un-ignore
+                } else {
+                    ignored = true; // Ignore pattern matched
+                }
+            }
+        }
+
+        if (ignored) return true;
+    }
+
     return false;
 }
 
@@ -134,30 +213,22 @@ function shouldIgnore(name, isDir) {
 function startWatching(targetPath) {
     if (currentWatcher) currentWatcher.close();
 
-    // Basic globs for chokidar
-    const ignoreGlobs = [
-        /(^|[\/\\])\../, // Ignore dotfiles
-        ...IGNORED_DIRS.map(dir => `**/${dir}/**`)
-    ];
-
-    // Add custom ignores to chokidar using a function matcher
-    const customMatcher = (pathStr) => {
-        const name = path.basename(pathStr);
-        for (const regex of customIgnorePatterns) {
-            if (regex.test(name)) return true;
-        }
-        return false;
-    };
-
     currentWatcher = chokidar.watch(targetPath, {
-        ignored: (pathStr, stats) => {
-            // Combine standard regex globs and our custom matcher
-            if (ignoreGlobs.some(glob => {
-                if (glob instanceof RegExp) return glob.test(pathStr);
-                return pathStr.includes(glob.replace(/\*\*/g, ''));
-            })) return true;
+        ignored: (pathStr) => {
+            const name = path.basename(pathStr);
+            const relativePath = path.relative(targetPath, pathStr);
 
-            return customMatcher(pathStr);
+            // Always ignore .git
+            if (pathStr.includes('/.git/') || pathStr.includes('\\.git\\')) return true;
+            if (name === '.git') return true;
+
+            // Check our ignore rules
+            try {
+                const stat = fs.statSync(pathStr);
+                return shouldIgnore(name, stat.isDirectory(), relativePath);
+            } catch {
+                return false;
+            }
         },
         persistent: true,
         ignoreInitial: true,
@@ -179,72 +250,156 @@ function startWatching(targetPath) {
 }
 
 // --- FILE OPERATIONS ---
-function generateFileTree(directoryPath, includeAllExtensions = false) {
+function generateFileTree(directoryPath, rootPath = null) {
+    if (!rootPath) rootPath = directoryPath;
+
     try {
         const items = fs.readdirSync(directoryPath);
         const tree = [];
+
         for (const item of items) {
             const fullPath = path.join(directoryPath, item);
+            const relativePath = path.relative(rootPath, fullPath);
+
             try {
                 const stat = fs.statSync(fullPath);
+                const isDir = stat.isDirectory();
 
-                // Check if ignored
-                if (shouldIgnore(item, stat.isDirectory())) continue;
+                // Check if ignored (with relative path for custom patterns)
+                if (shouldIgnore(item, isDir, relativePath)) continue;
 
-                if (stat.isDirectory()) {
+                if (isDir) {
                     tree.push({
                         name: item,
                         path: fullPath,
                         type: 'directory',
-                        children: generateFileTree(fullPath, includeAllExtensions)
+                        children: generateFileTree(fullPath, rootPath)
                     });
                 } else if (stat.isFile()) {
                     tree.push({ name: item, path: fullPath, type: 'file' });
                 }
-            } catch (e) { /* ignore access errors */ }
+            } catch (e) {
+                // Ignore access errors for individual files
+                console.log(`Skipping ${fullPath}: ${e.message}`);
+            }
         }
         return tree;
     } catch (e) {
+        console.error(`Error reading directory ${directoryPath}: ${e.message}`);
         return [];
     }
 }
 
+/**
+ * Get content as string for copying - with proper error handling
+ */
 function getPathContentAsString(targetPath, rootPath) {
-    const stat = fs.statSync(targetPath);
-    const baseName = path.basename(targetPath);
+    try {
+        const stat = fs.statSync(targetPath);
+        const baseName = path.basename(targetPath);
+        const relativePath = path.relative(rootPath, targetPath);
+        const isDir = stat.isDirectory();
 
-    if (shouldIgnore(baseName, stat.isDirectory())) return '';
+        // Check if ignored (but only for recursive calls, not for explicitly selected items)
+        // Note: We don't skip explicitly selected items, but we do skip their ignored children
+        if (shouldIgnore(baseName, isDir, relativePath)) {
+            return '';
+        }
 
-    if (stat.isFile()) {
-        try {
-            const content = fs.readFileSync(targetPath, 'utf-8');
-            const relativePath = path.relative(rootPath, targetPath).replace(/\\/g, '/');
-            return `--- File: ${relativePath} ---\n${content}\n\n`;
-        } catch (e) {
-            return `--- Could not read file: ${path.relative(rootPath, targetPath)} ---\n\n`;
+        if (stat.isFile()) {
+            try {
+                // Check if file is likely binary
+                const ext = path.extname(baseName).toLowerCase();
+                const binaryExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
+                    '.mp3', '.mp4', '.mov', '.avi', '.wav', '.zip', '.tar',
+                    '.gz', '.rar', '.7z', '.exe', '.dll', '.so', '.pdf'];
+                if (binaryExts.includes(ext)) {
+                    return `--- Binary file skipped: ${relativePath.replace(/\\/g, '/')} ---\n\n`;
+                }
+
+                const content = fs.readFileSync(targetPath, 'utf-8');
+                const relPath = relativePath.replace(/\\/g, '/');
+                return `--- File: ${relPath} ---\n${content}\n\n`;
+            } catch (e) {
+                const relPath = relativePath.replace(/\\/g, '/');
+                return `--- Could not read file: ${relPath} (${e.message}) ---\n\n`;
+            }
         }
-    }
-    if (stat.isDirectory()) {
-        let combinedContent = [];
-        const allItems = fs.readdirSync(targetPath);
-        for (const item of allItems) {
-            const fullPath = path.join(targetPath, item);
-            combinedContent.push(getPathContentAsString(fullPath, rootPath));
+
+        if (isDir) {
+            let combinedContent = [];
+            try {
+                const allItems = fs.readdirSync(targetPath);
+                for (const item of allItems) {
+                    const fullPath = path.join(targetPath, item);
+                    const childContent = getPathContentAsString(fullPath, rootPath);
+                    if (childContent) {
+                        combinedContent.push(childContent);
+                    }
+                }
+            } catch (e) {
+                console.log(`Could not read directory ${targetPath}: ${e.message}`);
+            }
+            return combinedContent.join('');
         }
-        return combinedContent.join('');
+
+        return '';
+    } catch (e) {
+        // File/directory doesn't exist or can't be accessed
+        console.log(`Skipping ${targetPath}: ${e.message}`);
+        return '';
     }
-    return '';
+}
+
+/**
+ * Explicit content getter - doesn't apply ignore rules to the top-level item
+ * Use this for items the user explicitly selected
+ */
+function getExplicitPathContent(targetPath, rootPath) {
+    try {
+        const stat = fs.statSync(targetPath);
+        const relativePath = path.relative(rootPath, targetPath);
+
+        if (stat.isFile()) {
+            try {
+                const content = fs.readFileSync(targetPath, 'utf-8');
+                const relPath = relativePath.replace(/\\/g, '/');
+                return `--- File: ${relPath} ---\n${content}\n\n`;
+            } catch (e) {
+                const relPath = relativePath.replace(/\\/g, '/');
+                return `--- Could not read file: ${relPath} (${e.message}) ---\n\n`;
+            }
+        }
+
+        if (stat.isDirectory()) {
+            // For directories, recursively get content (children will be filtered)
+            let combinedContent = [];
+            try {
+                const allItems = fs.readdirSync(targetPath);
+                for (const item of allItems) {
+                    const fullPath = path.join(targetPath, item);
+                    const childContent = getPathContentAsString(fullPath, rootPath);
+                    if (childContent) {
+                        combinedContent.push(childContent);
+                    }
+                }
+            } catch (e) {
+                console.log(`Could not read directory ${targetPath}: ${e.message}`);
+            }
+            return combinedContent.join('');
+        }
+
+        return '';
+    } catch (e) {
+        console.log(`Cannot access ${targetPath}: ${e.message}`);
+        return '';
+    }
 }
 
 async function handleReadFile(event, filePath) {
     try {
-        const baseName = path.basename(filePath);
-        if (shouldIgnore(baseName, false)) {
-            return { error: 'File is ignored by .codecopierignore or system filters.' };
-        }
-
         const stat = fs.statSync(filePath);
-        if (stat.size > 2 * 1024 * 1024) return { error: 'File is too large to display.' };
+        if (stat.size > 2 * 1024 * 1024) return { error: 'File is too large to display (>2MB).' };
 
         const content = fs.readFileSync(filePath, 'utf-8');
         const highlighted = hljs.highlightAuto(content);
@@ -311,7 +466,7 @@ function getGitDiff(rootPath) {
                 if (error.message.includes('maxBuffer')) {
                     resolve({ error: "Staged content is too large (>10MB)." });
                 } else {
-                    resolve({ error: "Git error." });
+                    resolve({ error: "Git error: " + error.message });
                 }
                 return;
             }
@@ -328,43 +483,72 @@ async function handleDirectoryOpen() {
     const rootPath = filePaths[0];
     currentRootPath = rootPath;
 
-    // Load custom ignores
+    // Load custom ignores FIRST before generating tree
     loadCustomIgnores(rootPath);
     addToRecentProjects(rootPath);
     startWatching(rootPath);
 
-    return { name: path.basename(rootPath), path: rootPath, type: 'directory', children: generateFileTree(rootPath) };
+    return {
+        name: path.basename(rootPath),
+        path: rootPath,
+        type: 'directory',
+        children: generateFileTree(rootPath, rootPath)
+    };
 }
 
 async function handleRefreshTree(event, dirPath) {
     if (!dirPath) return null;
-    // Reload ignores on refresh just in case the file changed
+    // Reload ignores on refresh in case the file changed
     loadCustomIgnores(dirPath);
-    try { return { name: path.basename(dirPath), path: dirPath, type: 'directory', children: generateFileTree(dirPath) }; } catch (e) { return null; }
+    try {
+        return {
+            name: path.basename(dirPath),
+            path: dirPath,
+            type: 'directory',
+            children: generateFileTree(dirPath, dirPath)
+        };
+    } catch (e) {
+        return null;
+    }
 }
 
 async function handleCopyMultiple(event, { paths, rootPath }) {
     try {
         let finalContent = '';
-        let count = 0;
+        let successCount = 0;
+        let errorCount = 0;
+
         for (const itemPath of paths) {
-            const content = getPathContentAsString(itemPath, rootPath);
-            if (content) {
+            // Use explicit getter (doesn't filter the selected item itself)
+            const content = getExplicitPathContent(itemPath, rootPath);
+            if (content && content.trim()) {
                 finalContent += content;
-                count++;
+                successCount++;
+            } else {
+                errorCount++;
             }
         }
-        if (!finalContent) return "No text content found.";
+
+        if (!finalContent.trim()) {
+            return "No text content found to copy.";
+        }
+
         clipboard.writeText(finalContent);
-        return `✅ Success! Copied ${count} items (${finalContent.length.toLocaleString()} chars).`;
+
+        let msg = `✅ Success! Copied ${successCount} item(s) (${finalContent.length.toLocaleString()} chars).`;
+        if (errorCount > 0) {
+            msg += ` ${errorCount} item(s) had no content.`;
+        }
+        return msg;
     } catch (error) {
+        console.error('Copy error:', error);
         return `❌ Error: ${error.message}`;
     }
 }
 
 async function handleCopyStructure(event, { rootPath }) {
     try {
-        const fileTree = generateFileTree(rootPath, true);
+        const fileTree = generateFileTree(rootPath, rootPath);
         const rootNode = { name: path.basename(rootPath), path: rootPath, type: 'directory', children: fileTree };
         const treeString = generateTreeStructureString(rootNode);
         clipboard.writeText(treeString);
@@ -405,7 +589,7 @@ async function handleOpenSpecificPath(event, dirPath) {
         name: path.basename(dirPath),
         path: dirPath,
         type: 'directory',
-        children: generateFileTree(dirPath)
+        children: generateFileTree(dirPath, dirPath)
     };
 }
 

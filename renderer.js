@@ -52,6 +52,8 @@ let selectedItems = new Map();
 let isSearchActive = false;
 let isEditorSearchActive = false;
 let hasFileOpen = false; // <-- NEW: explicit flag for whether a file is loaded
+let currentOpenFilePath = ''; // <-- NEW: track currently opened file for highlighting
+let loadingFilePath = ''; // <-- NEW: track file currently being loaded
 
 // Optimization State
 let treeSearchCache = [];
@@ -233,7 +235,6 @@ function setupResizer(resizer, element, isLeft) {
 setupResizer(resizerLeft, leftSidebar, true);
 setupResizer(resizerRight, rightSidebar, false);
 
-// --- VIEWER LOGIC ---
 async function openFileInViewer(node) {
     if (node.type !== 'file') return;
 
@@ -241,16 +242,42 @@ async function openFileInViewer(node) {
         closeEditorSearch();
     }
 
+    // Track the opened file and loading state
+    currentOpenFilePath = node.path;
+    loadingFilePath = node.path;
+    
+    // Immediately update DOM to show loading indicator
+    document.querySelectorAll('.tree-item.loading-file').forEach(el => el.classList.remove('loading-file'));
+    const allItems = document.querySelectorAll('#file-tree-container li[data-path]');
+    for (const li of allItems) {
+        if (li.dataset.path === node.path) {
+            const itemDiv = li.querySelector(':scope > .tree-item');
+            if (itemDiv) itemDiv.classList.add('loading-file');
+            break;
+        }
+    }
+    
+    // CRITICAL: Yield to browser to paint the loading spinner BEFORE heavy operations
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    
+    // Now do the heavy work (tree refresh + file read)
+    refreshTreeLogic(true);
+
     const iconPath = getIconPath(node);
     currentFileNameEl.innerHTML = `<img src="${iconPath}" class="tree-icon" /> ${node.name}`;
 
     codeContentEl.textContent = 'Loading...';
     lineNumbersEl.textContent = '';
     codeContentEl.className = 'language-plaintext';
-    hasFileOpen = false; // <-- Not loaded yet
+    hasFileOpen = false;
 
     try {
         const result = await window.electronAPI.readFile(node.path);
+
+        // Clear loading state
+        loadingFilePath = '';
+        document.querySelectorAll('.tree-item.loading-file').forEach(el => el.classList.remove('loading-file'));
+        refreshTreeLogic(true);
 
         if (result.error) {
             codeContentEl.textContent = `Unable to display file.\n\nReason: ${result.error}`;
@@ -260,7 +287,7 @@ async function openFileInViewer(node) {
         } else {
             codeContentEl.innerHTML = result.html;
             originalEditorHTML = result.html;
-            hasFileOpen = true; // <-- Successfully loaded
+            hasFileOpen = true;
 
             const langClass = result.language ? `language-${result.language}` : 'language-plaintext';
             codeContentEl.className = `hljs ${langClass}`;
@@ -274,6 +301,9 @@ async function openFileInViewer(node) {
         }
     } catch (e) {
         console.error(e);
+        loadingFilePath = '';
+        document.querySelectorAll('.tree-item.loading-file').forEach(el => el.classList.remove('loading-file'));
+        refreshTreeLogic(true);
         codeContentEl.textContent = "Error reading file.";
         lineNumbersEl.textContent = '';
         originalEditorHTML = '';
@@ -342,7 +372,11 @@ function createTree(nodes, expandedPaths = new Set(), ancestorSelected = false) 
 
         const isExplicitlySelected = selectedItems.has(node.path);
         const isEffectivelySelected = isExplicitlySelected || ancestorSelected;
+        const isActiveFile = node.path === currentOpenFilePath;
+        const isLoadingFile = node.path === loadingFilePath;
         if (isEffectivelySelected) itemDiv.classList.add('added');
+        if (isActiveFile) itemDiv.classList.add('active-file');
+        if (isLoadingFile) itemDiv.classList.add('loading-file');
 
         const contentDiv = document.createElement('div');
         contentDiv.className = 'item-content';

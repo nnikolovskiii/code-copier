@@ -1,137 +1,102 @@
-# .github/workflows/build.yml
+name: Build and Release Electron App
 
-name: Build Electron App
-
-# This workflow runs whenever you push code to the 'main' branch
 on:
   push:
     branches: [ "master" ]
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    # Use a matrix strategy to build on all platforms
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      # 1. Check out your code from the repository
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Set up the correct version of Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # Use a long-term support version of Node
+          node-version: '20'
 
-      # 3. Install Linux system dependencies for Electron
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libnss3 libgtk-3-0 libxrandr2 libasound2t64 libxtst6 libxss1
+          sudo apt-get install -y libnss3 libgtk-3-0 libxrandr2 libasound2t64 libxtst6 libxss1 rpm
 
-      # 4. Install your project's dependencies
       - name: Install dependencies
-        run: npm install
+        run: |
+          rm -f package-lock.json
+          npm install
 
-      # 5. Run the build command to create the application packages
-      - name: Build the application
-        run: npm run make
+      # Build and publish (only creates release when run on a tag)
+      - name: Build and Publish
+        run: npm run make -- --publish=onTag
 
-      # 6. Create Windows shortcuts
+      # Windows shortcuts creation (optional - keeps working)
       - name: Create Windows shortcuts
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          # Create shortcuts directory
           New-Item -ItemType Directory -Force -Path "shortcuts"
-
-          # Find the built executable
           $exeFile = Get-ChildItem -Path "out/make/squirrel.windows/x64/*.exe" | Select-Object -First 1
-          if (-not $exeFile) {
-            Write-Error "No executable found in out/make/squirrel.windows/x64/"
-            exit 1
-          }
-
+          if (-not $exeFile) { exit 0 }
+          
           $exePath = $exeFile.FullName
           $exeName = $exeFile.BaseName
           $workingDir = $exeFile.Directory.FullName
-
-          Write-Host "Found executable: $exePath"
-          Write-Host "Executable name: $exeName"
-          Write-Host "Working directory: $workingDir"
-
-          # Create Shell Object
+          
           $shell = New-Object -ComObject WScript.Shell
-
-          # Create Desktop shortcut
+          
           $desktopPath = [Environment]::GetFolderPath('Desktop')
-          $desktopShortcutPath = "$desktopPath\$exeName.lnk"
-          $desktopShortcut = $shell.CreateShortcut($desktopShortcutPath)
+          $desktopShortcut = $shell.CreateShortcut("$desktopPath\$exeName.lnk")
           $desktopShortcut.TargetPath = $exePath
           $desktopShortcut.WorkingDirectory = $workingDir
           $desktopShortcut.Description = "Code Copier"
           $desktopShortcut.Save()
-
-          # Create a copy for artifacts
-          Copy-Item $desktopShortcutPath -Destination "shortcuts\desktop-$exeName.lnk"
-          Write-Host "Created desktop shortcut: $desktopShortcutPath"
-
-          # Create Start Menu shortcut
+          
+          Copy-Item "$desktopPath\$exeName.lnk" -Destination "shortcuts\desktop-$exeName.lnk"
+          
           $startMenuPath = [Environment]::GetFolderPath('Programs')
-          $startMenuShortcutPath = "$startMenuPath\$exeName.lnk"
-          $startMenuShortcut = $shell.CreateShortcut($startMenuShortcutPath)
+          $startMenuShortcut = $shell.CreateShortcut("$startMenuPath\$exeName.lnk")
           $startMenuShortcut.TargetPath = $exePath
           $startMenuShortcut.WorkingDirectory = $workingDir
           $startMenuShortcut.Description = "Code Copier"
           $startMenuShortcut.Save()
+          
+          Copy-Item "$startMenuPath\$exeName.lnk" -Destination "shortcuts\startmenu-$exeName.lnk"
 
-          # Create a copy for artifacts
-          Copy-Item $startMenuShortcutPath -Destination "shortcuts\startmenu-$exeName.lnk"
-          Write-Host "Created start menu shortcut: $startMenuShortcutPath"
-
-          # List artifacts
-          Get-ChildItem -Path "shortcuts" -Recurse | ForEach-Object { Write-Host "Artifact: $($_.FullName)" }
-
-      # 7. Upload Windows artifacts
-      - name: Upload Windows build artifact
+      # Upload artifacts for easy download (optional, but useful)
+      - name: Upload Windows installer
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: out/make/squirrel.windows/x64/*.exe
 
-      # 8. Upload Windows shortcuts
-      - name: Upload Windows shortcuts
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-shortcuts
-          path: shortcuts/*.lnk
-
-      # 9. Upload Linux DEB artifacts
-      - name: Upload Linux DEB build artifact
+      - name: Upload Linux packages
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: linux-deb-package
-          path: out/make/deb/x64/*.deb
+          name: linux-packages
+          path: |
+            out/make/deb/x64/*.deb
+            out/make/rpm/x64/*.rpm
 
-      # 10. Upload Linux RPM artifacts
-      - name: Upload Linux RPM build artifact
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-rpm-package
-          path: out/make/rpm/x64/*.rpm
-
-      # 11. Upload macOS artifacts
-      - name: Upload macOS build artifact
+      - name: Upload macOS package
         if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: macos-zip-package
+          name: macos-package
           path: out/make/zip/darwin/*.zip

@@ -1,3 +1,9 @@
+// Handle creating/removing shortcuts on Windows when installing/uninstalling.
+if (require('electron-squirrel-startup')) {
+  require('electron/main').app.quit();
+  process.exit(0); // Ensure it exits immediately
+}
+
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log'); // Optional but recommended for debugging updates
 
@@ -68,6 +74,10 @@ function setupAutoUpdater() {
     // Optional: Enable logging
     autoUpdater.logger = log;
     autoUpdater.logger.transports.file.level = 'info';
+    
+    // Disable code signature verification for testing without certificate
+    autoUpdater.verifyUpdateCodeSignature = false;
+
     log.info('App starting...');
 
     // Check for updates immediately on start

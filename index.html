@@ -863,6 +863,165 @@
             background: linear-gradient(to bottom, transparent, var(--border-subtle), transparent);
             margin: 0 4px;
         }
+
+        /* --- FILE TREE SEARCH --- */
+        #file-tree-search-container {
+            padding: 8px 12px;
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border-subtle);
+            animation: slideDown 0.2s ease-out;
+        }
+        .search-box-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-app);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 6px 10px;
+            transition: all var(--transition-fast);
+        }
+        .search-box-wrapper:focus-within {
+            border-color: var(--border-active);
+            box-shadow: 0 0 0 3px var(--border-glow);
+        }
+        .search-icon {
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+        #file-tree-search-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-bright);
+            font-size: 13px;
+            outline: none;
+            padding: 0;
+            font-family: var(--font-ui);
+        }
+        #file-tree-search-input::placeholder {
+            color: var(--text-muted);
+        }
+        .search-close-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 14px;
+            line-height: 1;
+            border-radius: 4px;
+            transition: all var(--transition-fast);
+        }
+        .search-close-btn:hover {
+            color: var(--text-bright);
+            background: var(--bg-hover);
+        }
+        .search-results-count {
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: 6px 4px 0;
+            text-align: right;
+        }
+        .tree-item.hidden-by-search {
+            display: none !important;
+        }
+        .tree-item.match-search {
+            background: rgba(88, 166, 255, 0.15);
+            border: 1px solid rgba(88, 166, 255, 0.3);
+        }
+        .tree-item.match-search .tree-label {
+            color: var(--text-accent);
+            font-weight: 500;
+        }
+        .directory.has-matching-children > .tree-item {
+            background: rgba(88, 166, 255, 0.05);
+        }
+        .directory.has-matching-children > .tree-item .tree-label {
+            color: var(--text-bright);
+        }
+
+        /* --- EDITOR SEARCH --- */
+        #editor-search-container {
+            animation: slideDown 0.2s ease-out;
+        }
+        .editor-search-box {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-app);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 4px 8px;
+            transition: all var(--transition-fast);
+        }
+        .editor-search-box:focus-within {
+            border-color: var(--border-active);
+            box-shadow: 0 0 0 2px var(--border-glow);
+        }
+        .search-icon-small {
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+        #editor-search-input {
+            width: 140px;
+            background: transparent;
+            border: none;
+            color: var(--text-bright);
+            font-size: 12px;
+            outline: none;
+            padding: 0;
+            font-family: var(--font-ui);
+        }
+        #editor-search-input::placeholder {
+            color: var(--text-muted);
+        }
+        .search-count {
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: 0 4px;
+            min-width: 40px;
+            text-align: center;
+        }
+        .search-nav-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 10px;
+            border-radius: 3px;
+            transition: all var(--transition-fast);
+            line-height: 1;
+        }
+        .search-nav-btn:hover {
+            color: var(--text-bright);
+            background: var(--bg-hover);
+        }
+        .search-close-btn-small {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 12px;
+            line-height: 1;
+            border-radius: 3px;
+            transition: all var(--transition-fast);
+        }
+        .search-close-btn-small:hover {
+            color: var(--text-bright);
+            background: var(--bg-hover);
+        }
+        .editor-search-highlight {
+            background: rgba(255, 215, 0, 0.4);
+            border-radius: 2px;
+            box-shadow: 0 0 0 1px rgba(255, 215, 0, 0.6);
+        }
+        .editor-search-highlight.current {
+            background: rgba(255, 165, 0, 0.6);
+            box-shadow: 0 0 0 2px rgba(255, 165, 0, 0.8);
+        }
     </style>
 </head>
 <body>
@@ -944,7 +1103,18 @@
     <div class="main-content">
         <!-- LEFT SIDEBAR -->
         <div id="left-sidebar">
-            <div style="padding: 12px 16px; color: var(--text-muted); font-size: 11px; font-weight:700; text-transform: uppercase; letter-spacing: 0.1em; background: var(--bg-header); border-bottom: 1px solid var(--border-subtle);">Explorer</div>
+            <div style="padding: 12px 16px; color: var(--text-muted); font-size: 11px; font-weight:700; text-transform: uppercase; letter-spacing: 0.1em; background: var(--bg-header); border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+                <span>Explorer</span>
+                <span id="search-shortcut-hint" style="font-size: 10px; opacity: 0.6; font-weight: 500;">Ctrl+F</span>
+            </div>
+            <div id="file-tree-search-container" class="hidden">
+                <div class="search-box-wrapper">
+                    <svg class="search-icon" viewBox="0 0 16 16" width="14" height="14"><path d="M11.7422 10.3439C12.5329 9.2673 13 7.9382 13 6.5C13 2.91015 10.0899 0 6.5 0C2.91015 0 0 2.91015 0 6.5C0 10.0899 2.91015 13 6.5 13C7.9382 13 9.2673 12.5329 10.3439 11.7422L14.1464 15.5446C14.3417 15.7399 14.6583 15.7399 14.8536 15.5446L15.5446 14.8536C15.7399 14.6583 15.7399 14.3417 15.5446 14.1464L11.7422 10.3439ZM6.5 11C4.01472 11 2 8.98528 2 6.5C2 4.01472 4.01472 2 6.5 2C8.98528 2 11 4.01472 11 6.5C11 8.98528 8.98528 11 6.5 11Z" fill="currentColor"/></svg>
+                    <input type="text" id="file-tree-search-input" placeholder="Search files..." autocomplete="off">
+                    <button id="file-tree-search-close" class="search-close-btn" title="Close (Esc)">✕</button>
+                </div>
+                <div id="search-results-count" class="search-results-count"></div>
+            </div>
             <div id="file-tree-container">
                 <!-- Tree goes here -->
             </div>
@@ -957,6 +1127,16 @@
             <div class="editor-header">
                 <div class="editor-filename" id="current-file-name">
                     <span style="opacity: 0.5; font-style: italic;">No file selected</span>
+                </div>
+                <div id="editor-search-container" class="hidden">
+                    <div class="editor-search-box">
+                        <svg class="search-icon-small" viewBox="0 0 16 16" width="12" height="12"><path d="M11.7422 10.3439C12.5329 9.2673 13 7.9382 13 6.5C13 2.91015 10.0899 0 6.5 0C2.91015 0 0 2.91015 0 6.5C0 10.0899 2.91015 13 6.5 13C7.9382 13 9.2673 12.5329 10.3439 11.7422L14.1464 15.5446C14.3417 15.7399 14.6583 15.7399 14.8536 15.5446L15.5446 14.8536C15.7399 14.6583 15.7399 14.3417 15.5446 14.1464L11.7422 10.3439ZM6.5 11C4.01472 11 2 8.98528 2 6.5C2 4.01472 4.01472 2 6.5 2C8.98528 2 11 4.01472 11 6.5C11 8.98528 8.98528 11 6.5 11Z" fill="currentColor"/></svg>
+                        <input type="text" id="editor-search-input" placeholder="Find in file..." autocomplete="off">
+                        <span id="editor-search-count" class="search-count"></span>
+                        <button id="editor-search-prev" class="search-nav-btn" title="Previous (Shift+Enter)">▲</button>
+                        <button id="editor-search-next" class="search-nav-btn" title="Next (Enter)">▼</button>
+                        <button id="editor-search-close" class="search-close-btn-small" title="Close (Esc)">✕</button>
+                    </div>
                 </div>
             </div>
             <div id="code-scroll-container">

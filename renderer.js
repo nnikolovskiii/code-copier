@@ -6,7 +6,6 @@ const recentListEl = document.getElementById('recent-projects-list');
 
 // --- WORKSPACE ELEMENTS ---
 const selectFolderBtn = document.getElementById('select-folder-btn');
-// Removed: refreshBtn
 const gitStagedBtn = document.getElementById('git-staged-btn');
 const copyStructureBtn = document.getElementById('copy-structure-btn');
 const messageBox = document.getElementById('message-box');
@@ -26,6 +25,21 @@ const fileTreeContainer = document.getElementById('file-tree-container');
 const currentFileNameEl = document.getElementById('current-file-name');
 const codeContentEl = document.getElementById('code-content');
 
+// Search Elements
+const searchContainer = document.getElementById('file-tree-search-container');
+const searchInput = document.getElementById('file-tree-search-input');
+const searchCloseBtn = document.getElementById('file-tree-search-close');
+const searchResultsCount = document.getElementById('search-results-count');
+const searchShortcutHint = document.getElementById('search-shortcut-hint');
+
+// Editor Search Elements
+const editorSearchContainer = document.getElementById('editor-search-container');
+const editorSearchInput = document.getElementById('editor-search-input');
+const editorSearchCloseBtn = document.getElementById('editor-search-close');
+const editorSearchPrevBtn = document.getElementById('editor-search-prev');
+const editorSearchNextBtn = document.getElementById('editor-search-next');
+const editorSearchCount = document.getElementById('editor-search-count');
+
 // Staging
 const stagingList = document.getElementById('staging-list');
 const stagingCount = document.getElementById('staging-count');
@@ -35,6 +49,32 @@ const copyAllBtn = document.getElementById('copy-all-btn');
 // --- STATE ---
 let rootPath = '';
 let selectedItems = new Map();
+let isSearchActive = false;
+let isEditorSearchActive = false;
+let hasFileOpen = false; // <-- NEW: explicit flag for whether a file is loaded
+
+// Optimization State
+let treeSearchCache = [];
+let originalEditorHTML = '';
+let expandedPaths = new Set();
+
+// Editor Search State
+let editorSearchMatches = [];
+let currentEditorMatchIndex = -1;
+let editorSearchQuery = '';
+
+// --- HELPER: DEBOUNCE ---
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
 
 // --- ICON CONFIGURATION ---
 const ICON_BASE_PATH = './assets/icons/';
@@ -95,13 +135,11 @@ async function loadRecentProjects() {
         return;
     }
 
-    recentListEl.innerHTML = ''; // Clear
+    recentListEl.innerHTML = '';
 
     history.forEach(pathStr => {
         const item = document.createElement('div');
         item.className = 'recent-row';
-
-        // Extract folder name
         const name = pathStr.split(/[/\\]/).pop();
 
         item.innerHTML = `
@@ -113,8 +151,6 @@ async function loadRecentProjects() {
         `;
 
         item.addEventListener('click', async () => {
-            // We can reuse messageBox if we want, but it's hidden.
-            // Let's just transition.
             try {
                 const fileTreeData = await window.electronAPI.openRecentProject(pathStr);
                 if (fileTreeData && !fileTreeData.error) {
@@ -132,7 +168,6 @@ async function loadRecentProjects() {
     });
 }
 
-// Button on Welcome Screen
 welcomeOpenBtn.addEventListener('click', () => triggerOpenFolder());
 
 // --- CORE LOGIC ---
@@ -151,11 +186,12 @@ async function triggerOpenFolder() {
 function handleProjectLoaded(fileTreeData) {
     rootPath = fileTreeData.path;
     selectedItems.clear();
+    hasFileOpen = false; // <-- Reset
 
-    // Clear Editor
     currentFileNameEl.innerHTML = '<span style="opacity:0.5;font-style:italic">No file selected</span>';
     codeContentEl.textContent = '';
     lineNumbersEl.textContent = '';
+    originalEditorHTML = '';
 
     refreshTreeLogic(true);
     updateStagingView();
@@ -201,12 +237,17 @@ setupResizer(resizerRight, rightSidebar, false);
 async function openFileInViewer(node) {
     if (node.type !== 'file') return;
 
+    if (isEditorSearchActive) {
+        closeEditorSearch();
+    }
+
     const iconPath = getIconPath(node);
     currentFileNameEl.innerHTML = `<img src="${iconPath}" class="tree-icon" /> ${node.name}`;
 
     codeContentEl.textContent = 'Loading...';
     lineNumbersEl.textContent = '';
     codeContentEl.className = 'language-plaintext';
+    hasFileOpen = false; // <-- Not loaded yet
 
     try {
         const result = await window.electronAPI.readFile(node.path);
@@ -214,8 +255,13 @@ async function openFileInViewer(node) {
         if (result.error) {
             codeContentEl.textContent = `Unable to display file.\n\nReason: ${result.error}`;
             lineNumbersEl.textContent = '';
+            originalEditorHTML = '';
+            hasFileOpen = false;
         } else {
             codeContentEl.innerHTML = result.html;
+            originalEditorHTML = result.html;
+            hasFileOpen = true; // <-- Successfully loaded
+
             const langClass = result.language ? `language-${result.language}` : 'language-plaintext';
             codeContentEl.className = `hljs ${langClass}`;
 
@@ -230,6 +276,8 @@ async function openFileInViewer(node) {
         console.error(e);
         codeContentEl.textContent = "Error reading file.";
         lineNumbersEl.textContent = '';
+        originalEditorHTML = '';
+        hasFileOpen = false;
     }
 }
 
@@ -284,6 +332,13 @@ function createTree(nodes, expandedPaths = new Set(), ancestorSelected = false) 
         li.dataset.path = node.path;
         const itemDiv = document.createElement('div');
         itemDiv.className = 'tree-item';
+
+        treeSearchCache.push({
+            element: itemDiv,
+            text: node.name.toLowerCase(),
+            path: node.path,
+            isDir: node.type === 'directory'
+        });
 
         const isExplicitlySelected = selectedItems.has(node.path);
         const isEffectivelySelected = isExplicitlySelected || ancestorSelected;
@@ -353,23 +408,28 @@ function createTree(nodes, expandedPaths = new Set(), ancestorSelected = false) 
 }
 
 // --- BUTTON HANDLERS (WORKSPACE) ---
-// Note: selectFolderBtn (in toolbar) also calls triggersOpenFolder
 selectFolderBtn.addEventListener('click', () => triggerOpenFolder());
 
 async function refreshTreeLogic(isAuto = false) {
     if (!rootPath) return;
-    const expanded = new Set();
-    expanded.add(rootPath);
-    fileTreeContainer.querySelectorAll('.directory.open').forEach(el => expanded.add(el.dataset.path));
+    
+    expandedPaths.clear();
+    expandedPaths.add(rootPath);
+    fileTreeContainer.querySelectorAll('.directory.open').forEach(el => {
+        if (el.dataset.path) expandedPaths.add(el.dataset.path);
+    });
+
     if (!isAuto) messageBox.textContent = 'Refreshing...';
+    
     const fileTreeData = await window.electronAPI.refreshTree(rootPath);
     if (fileTreeData) {
         fileTreeContainer.innerHTML = '';
-        fileTreeContainer.appendChild(createTree([fileTreeData], expanded));
+        treeSearchCache = [];
+        fileTreeContainer.appendChild(createTree([fileTreeData], expandedPaths));
         if (!isAuto) { messageBox.textContent = 'Refreshed'; setTimeout(() => messageBox.textContent = '', 2000); }
     }
 }
-// Removed manual refreshBtn click listener
+
 window.electronAPI.onFileSystemChange(() => refreshTreeLogic(true));
 
 gitStagedBtn.addEventListener('click', async () => {
@@ -444,6 +504,355 @@ copyAllBtn.addEventListener('click', async () => {
 document.getElementById('btn-minimize').addEventListener('click', () => window.electronAPI.minimize());
 document.getElementById('btn-maximize').addEventListener('click', () => window.electronAPI.maximize());
 document.getElementById('btn-close').addEventListener('click', () => window.electronAPI.close());
+
+// --- FILE TREE SEARCH FUNCTIONALITY ---
+function openSearch() {
+    if (!rootPath) return;
+    isSearchActive = true;
+    searchContainer.classList.remove('hidden');
+    searchShortcutHint.style.display = 'none';
+    searchInput.value = '';
+    searchResultsCount.textContent = '';
+    searchInput.focus();
+    leftSidebar.classList.remove('collapsed');
+}
+
+function closeSearch() {
+    isSearchActive = false;
+    searchContainer.classList.add('hidden');
+    searchShortcutHint.style.display = '';
+    searchInput.value = '';
+    searchResultsCount.textContent = '';
+    
+    document.querySelectorAll('.tree-item.hidden-by-search').forEach(el => el.classList.remove('hidden-by-search'));
+    document.querySelectorAll('.tree-item.match-search').forEach(el => el.classList.remove('match-search'));
+    document.querySelectorAll('.directory.has-matching-children').forEach(el => el.classList.remove('has-matching-children'));
+
+    document.querySelectorAll('.directory').forEach(dir => {
+        const path = dir.dataset.path;
+        if (path && expandedPaths.has(path)) {
+            dir.classList.add('open');
+        } else {
+            dir.classList.remove('open');
+        }
+    });
+}
+
+function performSearch(query) {
+    const lowerQuery = query.toLowerCase().trim();
+    
+    document.querySelectorAll('.tree-item.hidden-by-search').forEach(el => el.classList.remove('hidden-by-search'));
+    document.querySelectorAll('.tree-item.match-search').forEach(el => el.classList.remove('match-search'));
+    document.querySelectorAll('.directory.has-matching-children').forEach(el => el.classList.remove('has-matching-children'));
+    
+    if (!lowerQuery) {
+        searchResultsCount.textContent = '';
+        document.querySelectorAll('.directory').forEach(dir => {
+            const path = dir.dataset.path;
+            if (path && expandedPaths.has(path)) {
+                dir.classList.add('open');
+            } else {
+                dir.classList.remove('open');
+            }
+        });
+        return;
+    }
+    
+    if (expandedPaths.size === 1 && document.querySelectorAll('.directory.open').length > 0) {
+        expandedPaths.clear();
+        expandedPaths.add(rootPath);
+        document.querySelectorAll('.directory.open').forEach(dir => {
+            if (dir.dataset.path) expandedPaths.add(dir.dataset.path);
+        });
+    }
+    
+    let matchCount = 0;
+    
+    treeSearchCache.forEach(item => {
+        const isMatch = item.text.includes(lowerQuery);
+        
+        if (isMatch) {
+            matchCount++;
+            item.element.classList.add('match-search');
+            
+            let parent = item.element.closest('li');
+            if (parent) {
+                let dirObj = parent.parentElement?.closest('.directory');
+                while (dirObj) {
+                    dirObj.classList.add('open', 'has-matching-children');
+                    dirObj = dirObj.parentElement?.closest('.directory');
+                }
+            }
+        } else {
+            item.element.classList.add('hidden-by-search');
+        }
+    });
+
+    const parentsWithMatches = document.getElementsByClassName('has-matching-children');
+    for (let parent of parentsWithMatches) {
+        const item = parent.querySelector(':scope > .tree-item');
+        if (item) item.classList.remove('hidden-by-search');
+    }
+    
+    if (matchCount === 0) {
+        searchResultsCount.textContent = 'No matches found';
+    } else {
+        searchResultsCount.textContent = `${matchCount} match${matchCount === 1 ? '' : 'es'}`;
+    }
+}
+
+searchCloseBtn.addEventListener('click', closeSearch);
+
+searchInput.addEventListener('input', debounce((e) => {
+    performSearch(e.target.value);
+}, 150));
+
+searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSearch();
+        fileTreeContainer.focus();
+    }
+});
+
+// =============================================
+// EDITOR SEARCH — REWRITTEN
+// =============================================
+
+function openEditorSearch() {
+    // Only open editor search if a file is actually loaded
+    if (!hasFileOpen) {
+        openSearch();
+        return;
+    }
+    
+    isEditorSearchActive = true;
+    editorSearchContainer.classList.remove('hidden');
+    editorSearchInput.value = editorSearchQuery || '';
+    editorSearchInput.focus();
+    editorSearchInput.select();
+    
+    if (editorSearchQuery) {
+        performEditorSearch(editorSearchQuery);
+    }
+}
+
+function closeEditorSearch() {
+    isEditorSearchActive = false;
+    editorSearchContainer.classList.add('hidden');
+    editorSearchQuery = '';
+    
+    // Restore clean highlighted HTML in one shot
+    if (originalEditorHTML) {
+        codeContentEl.innerHTML = originalEditorHTML;
+    }
+    
+    editorSearchMatches = [];
+    currentEditorMatchIndex = -1;
+    editorSearchCount.textContent = '';
+}
+
+/**
+ * Fixed editor search: collects text nodes as a snapshot first,
+ * then for each node builds a complete replacement DocumentFragment
+ * in a single pass. Never re-visits already-processed nodes.
+ */
+function performEditorSearch(query) {
+    editorSearchQuery = query;
+    editorSearchMatches = [];
+    currentEditorMatchIndex = -1;
+    
+    // 1. Reset to the clean syntax-highlighted HTML
+    if (originalEditorHTML) {
+        codeContentEl.innerHTML = originalEditorHTML;
+    }
+
+    if (!query || !query.trim()) {
+        editorSearchCount.textContent = '';
+        return;
+    }
+    
+    const lowerQuery = query.toLowerCase();
+    
+    // 2. Collect ALL text nodes that contain the query (snapshot)
+    const matchingTextNodes = [];
+    const walker = document.createTreeWalker(
+        codeContentEl,
+        NodeFilter.SHOW_TEXT,
+        null
+    );
+    let walkerNode;
+    while ((walkerNode = walker.nextNode())) {
+        if (walkerNode.textContent.toLowerCase().includes(lowerQuery)) {
+            matchingTextNodes.push(walkerNode);
+        }
+    }
+    
+    // 3. For each text node, find ALL matches and build a single replacement fragment
+    for (const textNode of matchingTextNodes) {
+        const fullText = textNode.textContent;
+        const lowerText = fullText.toLowerCase();
+        const parent = textNode.parentNode;
+        
+        // Skip if parent was removed (shouldn't happen with snapshot, but be safe)
+        if (!parent) continue;
+        
+        const fragment = document.createDocumentFragment();
+        let lastIndex = 0;
+        let searchPos = 0;
+        
+        while ((searchPos = lowerText.indexOf(lowerQuery, lastIndex)) !== -1) {
+            // Text before this match
+            if (searchPos > lastIndex) {
+                fragment.appendChild(
+                    document.createTextNode(fullText.substring(lastIndex, searchPos))
+                );
+            }
+            
+            // The highlighted match
+            const span = document.createElement('span');
+            span.className = 'editor-search-highlight';
+            span.textContent = fullText.substring(searchPos, searchPos + query.length);
+            span.dataset.matchIndex = editorSearchMatches.length;
+            fragment.appendChild(span);
+            editorSearchMatches.push(span);
+            
+            lastIndex = searchPos + query.length;
+        }
+        
+        // Remaining text after last match
+        if (lastIndex < fullText.length) {
+            fragment.appendChild(
+                document.createTextNode(fullText.substring(lastIndex))
+            );
+        }
+        
+        // Single DOM operation: swap the text node for the fragment
+        parent.replaceChild(fragment, textNode);
+    }
+    
+    // 4. Update count and highlight first match
+    if (editorSearchMatches.length === 0) {
+        editorSearchCount.textContent = '0/0';
+    } else {
+        currentEditorMatchIndex = 0;
+        highlightCurrentMatch();
+        scrollToCurrentMatch();
+    }
+}
+
+function highlightCurrentMatch() {
+    // Remove 'current' from all, add to active one
+    for (let i = 0; i < editorSearchMatches.length; i++) {
+        if (i === currentEditorMatchIndex) {
+            editorSearchMatches[i].classList.add('current');
+        } else {
+            editorSearchMatches[i].classList.remove('current');
+        }
+    }
+    
+    if (editorSearchMatches.length > 0) {
+        editorSearchCount.textContent = `${currentEditorMatchIndex + 1}/${editorSearchMatches.length}`;
+    }
+}
+
+function scrollToCurrentMatch() {
+    if (currentEditorMatchIndex >= 0 && currentEditorMatchIndex < editorSearchMatches.length) {
+        editorSearchMatches[currentEditorMatchIndex].scrollIntoView({
+            behavior: 'smooth',
+            block: 'center'
+        });
+    }
+}
+
+function navigateToNextMatch() {
+    if (editorSearchMatches.length === 0) return;
+    currentEditorMatchIndex = (currentEditorMatchIndex + 1) % editorSearchMatches.length;
+    highlightCurrentMatch();
+    scrollToCurrentMatch();
+}
+
+function navigateToPreviousMatch() {
+    if (editorSearchMatches.length === 0) return;
+    currentEditorMatchIndex = (currentEditorMatchIndex - 1 + editorSearchMatches.length) % editorSearchMatches.length;
+    highlightCurrentMatch();
+    scrollToCurrentMatch();
+}
+
+editorSearchCloseBtn.addEventListener('click', closeEditorSearch);
+
+editorSearchInput.addEventListener('input', debounce((e) => {
+    performEditorSearch(e.target.value);
+}, 150));
+
+editorSearchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeEditorSearch();
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+            navigateToPreviousMatch();
+        } else {
+            navigateToNextMatch();
+        }
+    }
+});
+
+editorSearchNextBtn.addEventListener('click', navigateToNextMatch);
+editorSearchPrevBtn.addEventListener('click', navigateToPreviousMatch);
+
+// =============================================
+// GLOBAL KEYBOARD SHORTCUTS — SIMPLIFIED
+// =============================================
+document.addEventListener('keydown', (e) => {
+    // Ctrl+F / Cmd+F — always searches the current file if one is open
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        if (viewWorkspace.classList.contains('hidden')) return;
+        
+        if (hasFileOpen) {
+            // A file is loaded in the editor → search inside it
+            if (isSearchActive) closeSearch(); // close tree search if open
+            openEditorSearch();
+        } else {
+            // No file open → fall back to tree search
+            if (isEditorSearchActive) closeEditorSearch();
+            openSearch();
+        }
+        return;
+    }
+    
+    // Escape closes whichever search is active
+    if (e.key === 'Escape') {
+        if (isEditorSearchActive) {
+            e.preventDefault();
+            closeEditorSearch();
+        } else if (isSearchActive) {
+            e.preventDefault();
+            closeSearch();
+        }
+    }
+    
+    // F3 navigates matches in editor search
+    if (e.key === 'F3' && isEditorSearchActive) {
+        e.preventDefault();
+        if (e.shiftKey) {
+            navigateToPreviousMatch();
+        } else {
+            navigateToNextMatch();
+        }
+    }
+});
+
+// Close search panels when clicking outside
+document.addEventListener('click', (e) => {
+    if (isSearchActive && !searchContainer.contains(e.target) && !e.target.closest('#left-sidebar')) {
+        closeSearch();
+    }
+    // Don't auto-close editor search on outside click — it's too easy to
+    // accidentally dismiss it. Users can press Escape or the ✕ button.
+});
 
 // --- INIT ---
 showWelcomeView();

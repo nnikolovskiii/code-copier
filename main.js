@@ -1,3 +1,6 @@
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log'); // Optional but recommended for debugging updates
+
 const hljs = require('highlight.js');
 const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu } = require('electron/main');
 const path = require('node:path');
@@ -60,6 +63,44 @@ const IGNORED_DIRS = [
     '.cache',
     '.tmp', 'tmp', 'temp'
 ];
+
+function setupAutoUpdater() {
+    // Optional: Enable logging
+    autoUpdater.logger = log;
+    autoUpdater.logger.transports.file.level = 'info';
+    log.info('App starting...');
+
+    // Check for updates immediately on start
+    autoUpdater.checkForUpdatesAndNotify();
+
+    // Check every 30 minutes (optional)
+    setInterval(() => {
+        autoUpdater.checkForUpdatesAndNotify();
+    }, 30 * 60 * 1000);
+
+    // When an update is available
+    autoUpdater.on('update-available', (info) => {
+        log.info('Update available:', info);
+        // You can show a custom notification here if you want
+        // The default notification will show automatically with checkForUpdatesAndNotify()
+    });
+
+    // When an update is downloaded
+    autoUpdater.on('update-downloaded', (info) => {
+        log.info('Update downloaded:', info);
+        
+        // Option 1: Install on next restart (default behavior)
+        // The user will get a notification saying "Restart to update"
+        
+        // Option 2: Force restart immediately (uncomment if you want this)
+        // autoUpdater.quitAndInstall();
+    });
+
+    // Handle errors silently (don't crash the app)
+    autoUpdater.on('error', (err) => {
+        log.error('Update error:', err);
+    });
+}
 
 // --- HELPER: DEBOUNCE ---
 function debounce(func, wait) {
@@ -626,6 +667,7 @@ async function handleOpenSpecificPath(event, dirPath) {
 }
 
 // --- MENU ---
+// --- MENU ---
 function createMenu() {
     const isMac = process.platform === 'darwin';
 
@@ -686,6 +728,23 @@ function createMenu() {
                     { role: 'close' }
                 ])
             ]
+        },
+        // ADD THIS NEW HELP MENU AT THE END:
+        {
+            label: 'Help',
+            submenu: [
+                {
+                    label: 'Check for Updates',
+                    click: () => {
+                        autoUpdater.checkForUpdatesAndNotify();
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: `Version: ${app.getVersion()}`,
+                    enabled: false
+                }
+            ]
         }
     ];
 
@@ -737,6 +796,9 @@ app.whenReady().then(() => {
     ipcMain.on('window:close', () => mainWindow.close());
 
     createWindow();
+
+      // Setup auto-updater after window is created
+    setupAutoUpdater();
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {

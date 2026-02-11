@@ -17,6 +17,18 @@
         "icon": "./build/icon"
       },
       "rebuildConfig": {},
+       "publishers": [
+        {
+          "name": "@electron-forge/publisher-github",
+          "config": {
+            "repository": {
+              "owner": "nnikolovskiii",
+              "name": "code-copier"
+            },
+            "prerelease": false
+          }
+        }
+      ],
       "makers": [
         {
           "name": "@electron-forge/maker-squirrel",
@@ -63,12 +75,14 @@
     "@electron-forge/maker-squirrel": "^7.10.2",
     "@electron-forge/maker-zip": "^7.10.2",
     "@electron-forge/plugin-auto-unpack-natives": "^7.10.2",
+    "@electron-forge/publisher-github": "^7.11.1",
     "electron": "^39.2.0"
   },
   "dependencies": {
     "@react-oauth/google": "^0.12.2",
     "chokidar": "^5.0.0",
     "electron-squirrel-startup": "^1.0.1",
+    "electron-updater": "^6.7.3",
     "highlight.js": "^11.11.1"
   }
 }

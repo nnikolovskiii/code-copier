@@ -8,7 +8,7 @@ const { autoUpdater } = require('electron-updater');
 const log = require('electron-log'); // Optional but recommended for debugging updates
 
 const hljs = require('highlight.js');
-const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu } = require('electron/main');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, shell } = require('electron/main');
 const path = require('node:path');
 const fs = require('node:fs');
 const chokidar = require('chokidar');
@@ -762,6 +762,48 @@ function createMenu() {
     Menu.setApplicationMenu(menu);
 }
 
+// --- MANUAL UPDATE CHECKER (For Linux) ---
+async function checkGithubUpdates() {
+    // Only run this on Linux (Windows uses the auto-updater)
+    if (process.platform !== 'linux') return;
+
+    try {
+        const repo = 'nnikolovskiii/code-copier'; // Your Repo
+        const url = `https://api.github.com/repos/${repo}/releases/latest`;
+        
+        // Fetch latest release data from GitHub
+        const response = await fetch(url, {
+            headers: { 'User-Agent': 'CodeCopier-App' } // GitHub requires a User-Agent
+        });
+        
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const latestTag = data.tag_name.replace('v', ''); // Remove 'v' from 'v1.1.1'
+        const currentVersion = app.getVersion();
+
+        // Simple version comparison
+        if (isVersionNewer(currentVersion, latestTag)) {
+            console.log(`Update available: ${latestTag}`);
+            // Send the download URL to the renderer
+            mainWindow.webContents.send('update:available', data.html_url);
+        }
+    } catch (error) {
+        console.error('Manual update check failed:', error);
+    }
+}
+
+// Helper: Returns true if v2 > v1
+function isVersionNewer(v1, v2) {
+    const p1 = v1.split('.').map(Number);
+    const p2 = v2.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        if (p2[i] > p1[i]) return true;
+        if (p2[i] < p1[i]) return false;
+    }
+    return false;
+}
+
 // --- WINDOW CREATION ---
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -777,6 +819,11 @@ function createWindow() {
     });
 
     mainWindow.loadFile('index.html');
+
+    // --- Check for updates after the window loads ---
+    mainWindow.webContents.on('did-finish-load', () => {
+        checkGithubUpdates();
+    });
 }
 
 // --- APP LIFECYCLE ---
@@ -793,6 +840,9 @@ app.whenReady().then(() => {
     ipcMain.handle('git:copyDiff', handleCopyGitDiff);
     ipcMain.handle('history:get', handleGetRecent);
     ipcMain.handle('history:open', handleOpenSpecificPath);
+    ipcMain.handle('shell:openExternal', (event, url) => {
+        shell.openExternal(url);
+    });
 
     // Window controls
     ipcMain.on('window:minimize', () => mainWindow.minimize());

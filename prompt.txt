@@ -1,0 +1,67 @@
+Based on the conversation you pasted, here is a clear summary of **the exact problem** in your code and **what you need to fix**.
+
+### 🚨 The Core Problem: Mixing up `id` and `displayId`
+Your backend database uses two different identifiers for a ticket:
+1. **`id` (number):** The real database ID (e.g., `12`). This is what the backend API needs to fetch, update, or delete tickets.
+2. **`displayId` (string):** The user-friendly text ID (e.g., `"T-012"`). This is strictly for the UI so humans can read it easily.
+
+**The Bug:** In your `TicketsContext`, when data arrives from the backend, your `mapTicket` function does this:
+```typescript
+id: t.displayId, 
+```
+By doing this, **you completely erase the real database `id`** and replace it with the string `"T-012"`. 
+
+Because you lost the real database ID, it causes a domino effect of bugs:
+* You route the user to `/dashboard/tickets/T-012`.
+* In `TicketDetailPage`, you have to write a "hacky" piece of code to slice the string and convert it back into a number (`parseInt(id.slice(2))`) just so the backend API won't crash.
+* Updates, comments, and attachments are unstable because they are trying to use a UI string instead of the database ID.
+
+---
+
+### 🛠️ What Should Be Fixed (Step-by-Step)
+
+To fix this, you need to separate the UI ID from the Database ID throughout your app. Here are the exact changes required:
+
+#### 1. Fix the `Ticket` Interface (in `mockData.ts` or wherever your types are)
+You need your frontend ticket to hold *both* IDs.
+* **Change:** `id: string;` 
+* **To:** 
+  ```typescript
+  id: number;        // The real backend database ID
+  displayId: string; // The UI string, e.g., "T-012"
+  ```
+
+#### 2. Fix the Mapping (in `TicketsContext.tsx`)
+Stop overwriting the database ID. Map both fields correctly.
+* **Change:** `id: t.displayId,`
+* **To:**
+  ```typescript
+  id: t.id,
+  displayId: t.displayId,
+  ```
+
+#### 3. Fix the Table & Search (in `TicketsPage.tsx`)
+Now that `ticket.id` is a number, you need to update the UI so it doesn't break.
+* **Fix the Search bar:** It should search by the new text ID.
+  * **Change:** `t.id.toLowerCase().includes(searchLower)`
+  * **To:** `t.displayId.toLowerCase().includes(searchLower)`
+* **Fix the Table View:** Tell the table to display the text ID.
+  * **Change:** `<TableCell>{ticket.id}</TableCell>`
+  * **To:** `<TableCell>{ticket.displayId}</TableCell>`
+* **Keep Navigation the same:** `onClick={() => navigate('/dashboard/tickets/${ticket.id}')}` will now naturally route the user using the real database number (e.g., `/dashboard/tickets/12`).
+
+#### 4. Remove the "Hack" (in `TicketDetailPage.tsx`)
+Because your URL will now pass the real database ID (e.g., `12` instead of `T-012`), you don't need the string manipulation anymore.
+* **Delete this code entirely:**
+  ```javascript
+  const numericId = id.startsWith('T-')
+      ? String(parseInt(id.slice(2), 10))
+      : id;
+  ```
+* **Use the ID directly in the API call:**
+  ```javascript
+  const res = await axiosInstance.get(`/organizations/${user.organizationId}/tickets/${id}`);
+  ```
+
+### 💡 Secondary Problem Mentioned: `assignedEmployee`
+The conversation also noted that you have a similar mismatch happening with employees. You are currently mixing up Employee User IDs (e.g., `e3` or `1`) with their actual Display Names (e.g., "Marko Nikolov"). Fixing the Ticket ID architecture above will make it much easier to fix the employee assignment logic next.

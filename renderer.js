@@ -888,5 +888,64 @@ document.addEventListener('click', (e) => {
     // accidentally dismiss it. Users can press Escape or the ✕ button.
 });
 
+// --- UPDATE NOTIFICATION ---
+window.electronAPI.onUpdateAvailable((url) => {
+    showUpdateNotification(url);
+});
+
+function showUpdateNotification(downloadUrl) {
+    // Create the notification element
+    const notification = document.createElement('div');
+    notification.id = 'update-notification';
+    notification.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 16px;">🚀</span>
+            <div>
+                <div style="font-weight: 600; color: var(--text-bright);">Update Available</div>
+                <div style="font-size: 11px; color: var(--text-muted);">A new version is available on GitHub.</div>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <button id="btn-update-download" class="primary" style="height: 28px; font-size: 12px;">Download</button>
+            <button id="btn-update-close" style="height: 28px; width: 28px; padding: 0; justify-content: center;">✕</button>
+        </div>
+    `;
+
+    // Add Styles
+    Object.assign(notification.style, {
+        position: 'fixed',
+        bottom: '20px',
+        right: '20px',
+        background: 'var(--bg-sidebar)',
+        border: '1px solid var(--accent-primary)',
+        borderRadius: 'var(--radius-md)',
+        padding: '12px 16px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '24px',
+        zIndex: '1000',
+        minWidth: '320px',
+        animation: 'slideUp 0.3s ease-out'
+    });
+
+    // Add Animation CSS
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = `@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`;
+    document.head.appendChild(styleSheet);
+
+    document.body.appendChild(notification);
+
+    // Button Logic
+    document.getElementById('btn-update-download').onclick = () => {
+        window.electronAPI.openExternal(downloadUrl);
+    };
+    
+    document.getElementById('btn-update-close').onclick = () => {
+        notification.remove();
+    };
+}
+
 // --- INIT ---
 showWelcomeView();

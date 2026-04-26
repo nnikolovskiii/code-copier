@@ -21,7 +21,7 @@
         "icon": "./build/icon"
       },
       "rebuildConfig": {},
-       "publishers": [
+      "publishers": [
         {
           "name": "@electron-forge/publisher-github",
           "config": {
@@ -85,6 +85,7 @@
   "dependencies": {
     "@react-oauth/google": "^0.12.2",
     "chokidar": "^5.0.0",
+    "electron-log": "^5.4.3",
     "electron-squirrel-startup": "^1.0.1",
     "electron-updater": "^6.7.3",
     "highlight.js": "^11.11.1"
